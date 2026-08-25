@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(powershell -NoProfile -Command \"Stop-Process -Id 14956 -Force -ErrorAction SilentlyContinue\")",
+      "Read(//c/dev/trading-mind-coach/**)",
+      "Bash(npm run *)",
+      "Bash(netstat -ano)",
+      "Bash(npx vercel *)",
+      "Bash(where vercel *)",
+      "Bash(tasklist)",
+      "Bash(powershell -NoProfile -Command \"Stop-Process -Id 5060 -Force -ErrorAction SilentlyContinue\")",
+      "Bash(rm -rf \"C:/dev/trading-mind-coach/.next\")",
+      "Bash(npm ls *)",
+      "Bash(npm install *)",
+      "Bash(npx tsc *)",
+      "Bash(npx vite *)",
+      "Bash(curl -s \"https://sesnlesjsosxfxuzcfng.supabase.co/rest/v1/\" -H \"apikey: sb_publishable_fQyPqFvdhgezNdJHubrhgw_3SJ-cuyv\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5173)",
+      "Bash(grep -n \"^\\\\.nav-item,\\\\|^\\\\.ghost-btn,\\\\|^\\\\.primary-btn,\\\\|^\\\\.secondary-btn {\" -A12 src/styles.css)",
+      "Bash(grep -n '\"primary-btn\"\\\\s*$\\\\|disabled={!selectedFriendId\\\\|+ Agregar operación\\\\|className=\"ghost-btn\"' src/pages/JournalEntry.tsx)",
+      "Bash(grep -n \"^\\\\.hero-card,\\\\|^\\\\.metric {\" -A10 src/styles.css)",
+      "mcp__visualize__read_me",
+      "mcp__visualize__show_widget",
+      "Bash(npx supabase *)",
+      "Bash(ls -la \"/c/Users/Juan Pablo/Downloads/\" 2>/dev/null | grep -i journal)",
+      "Bash(mkdir -p \"C:\\\\Users\\\\Juan Pablo\\\\OneDrive\\\\Escritorio\\\\JOURNAL P.A.T\\\\trading-mind-coach\\\\supabase\\\\functions\\\\tradovate-connect\" \"C:\\\\Users\\\\Juan Pablo\\\\OneDrive\\\\Escritorio\\\\JOURNAL P.A.T\\\\trading-mind-coach\\\\supabase\\\\functions\\\\tradovate-sync\" \"C:\\\\Users\\\\Juan Pablo\\\\OneDrive\\\\Escritorio\\\\JOURNAL P.A.T\\\\trading-mind-coach\\\\supabase\\\\functions\\\\_shared\")",
+      "WebSearch",
+      "Bash(find \"C:/Users/Juan Pablo\" -iname \"*ks0otgks0otgks0o*\" 2>/dev/null)",
+      "Bash(mkdir -p \"C:/Users/Juan Pablo/OneDrive/Escritorio/JOURNAL P.A.T/trading-mind-coach/src/assets\" && cp \"C:/Users/Juan Pablo/Downloads/Gemini_Generated_Image_ks0otgks0otgks0o.jpg\" \"C:/Users/Juan Pablo/OneDrive/Escritorio/JOURNAL P.A.T/trading-mind-coach/src/assets/emblem-juanpablo.jpg\" && ls -la \"C:/Users/Juan Pablo/OneDrive/Escritorio/JOURNAL P.A.T/trading-mind-coach/src/assets/\")",
+      "Bash(rm -f src/components/UserEmblem.tsx src/assets/emblem-juanpablo.jpg)",
+      "Bash(rmdir src/assets)",
+      "Bash(powershell -Command \"Get-NetTCPConnection -LocalPort 5173 -ErrorAction SilentlyContinue\")"
+    ]
+  }
+}
