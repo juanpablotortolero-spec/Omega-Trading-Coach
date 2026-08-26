@@ -1,4 +1,4 @@
-import { localIsoDate } from './calendar';
+import { localIsoDate, summarizeOperationsByDate } from './calendar';
 import { supabase } from './supabaseClient';
 import { currentStage, rankPenaltyMultiplier } from './virtus';
 
@@ -1676,6 +1676,45 @@ export function getWeekBounds(referenceDate: Date): { weekStart: string; weekEnd
   const sunday = new Date(monday);
   sunday.setDate(monday.getDate() + 6);
   return { weekStart: localIsoDate(monday), weekEnd: localIsoDate(sunday) };
+}
+
+export type WeeklyKillSwitchStatus = {
+  redDays: number;
+  greenDays: number;
+  triggered: 'red_limit' | 'euphoria' | null;
+  weekStart: string;
+  weekEnd: string;
+};
+
+const RED_DAY_LIMIT = 3;
+const GREEN_DAY_LIMIT = 4;
+
+/**
+ * Kill-switch semanal — se recalcula en vivo desde journal_entries/operations
+ * reales cada vez que se llama, nunca se guarda como un flag. Eso es lo que
+ * lo hace imposible de saltarse con un F5 y lo que lo resetea solo el lunes:
+ * no hay nada que "expire", la semana simplemente cambia.
+ */
+export async function getWeeklyKillSwitchStatus(
+  userId: string,
+  referenceDate: Date,
+): Promise<WeeklyKillSwitchStatus> {
+  const { weekStart, weekEnd } = getWeekBounds(referenceDate);
+  const ops = await getOperationsInRange(userId, weekStart, weekEnd);
+  const summaryByDate = summarizeOperationsByDate(ops);
+
+  let redDays = 0;
+  let greenDays = 0;
+  Object.entries(summaryByDate).forEach(([date, summary]) => {
+    const day = new Date(`${date}T12:00:00`);
+    const isWeekday = day.getDay() >= 1 && day.getDay() <= 5;
+    if (!isWeekday || !summary.hasPnl) return;
+    if (summary.pnl < 0) redDays += 1;
+    else if (summary.pnl > 0) greenDays += 1;
+  });
+
+  const triggered = redDays >= RED_DAY_LIMIT ? 'red_limit' : greenDays >= GREEN_DAY_LIMIT ? 'euphoria' : null;
+  return { redDays, greenDays, triggered, weekStart, weekEnd };
 }
 
 export async function getWeeklyMissionsStatus(

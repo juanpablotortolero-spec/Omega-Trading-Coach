@@ -8,6 +8,7 @@ import {
   getPendingFriendRequestsCount,
   getRecentEntrySealStatus,
   getRecentSharesForMe,
+  getWeeklyKillSwitchStatus,
   touchPresence,
 } from '../lib/api';
 import { localIsoDate } from '../lib/calendar';
@@ -65,6 +66,7 @@ function MainLayout() {
   const [pendingRequests, setPendingRequests] = useState(0);
   const [mailboxCount, setMailboxCount] = useState(0);
   const [navOpen, setNavOpen] = useState(false);
+  const [journalLocked, setJournalLocked] = useState(false);
 
   useEffect(() => {
     setNavOpen(false);
@@ -97,6 +99,19 @@ function MainLayout() {
       if (cancelled) return;
       const unsealedReminder = sealStatus && !sealStatus.sealed ? 1 : 0;
       setMailboxCount(pending + pendingAgora + shares.length + unsealedReminder);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user, version]);
+
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+
+    getWeeklyKillSwitchStatus(user.id, new Date()).then((status) => {
+      if (!cancelled) setJournalLocked(status.triggered !== null);
     });
 
     return () => {
@@ -182,9 +197,16 @@ function MainLayout() {
               <NavLink
                 key={item.label}
                 to={item.path}
-                className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+                className={({ isActive }) =>
+                  `nav-item ${isActive ? 'active' : ''} ${item.path === '/journal/nuevo' && journalLocked ? 'locked' : ''}`
+                }
               >
                 {item.label}
+                {item.path === '/journal/nuevo' && journalLocked && (
+                  <span className="nav-item-lock" title="Cuarentena activa esta semana" aria-hidden="true">
+                    🔒
+                  </span>
+                )}
                 {item.path === '/social' && pendingRequests > 0 && (
                   <span className="nav-notif-dot" title={`${pendingRequests} solicitud${pendingRequests === 1 ? '' : 'es'} pendiente${pendingRequests === 1 ? '' : 's'}`} />
                 )}

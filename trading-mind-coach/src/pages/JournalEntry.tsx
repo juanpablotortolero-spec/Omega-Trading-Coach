@@ -25,6 +25,7 @@ import {
   getRecentShareFriendOrder,
   getTradingPlan,
   getVirtusTotal,
+  getWeeklyKillSwitchStatus,
   newOperation,
   postMarketQuizQuestions,
   psychologyEmotions,
@@ -45,6 +46,7 @@ import {
   type JournalTemplateSections,
   type OperationItem,
   type TradingPlan,
+  type WeeklyKillSwitchStatus,
 } from '../lib/api';
 import { localIsoDate } from '../lib/calendar';
 import {
@@ -66,6 +68,7 @@ import QuizQuestionRow from '../components/QuizQuestionRow';
 import AtaraxiaBar from '../components/AtaraxiaBar';
 import SessionSealedModal from '../components/SessionSealedModal';
 import JournalInfoModal from '../components/JournalInfoModal';
+import QuarantineScreen from '../components/QuarantineScreen';
 
 function PhaseLocked({ title, message }: { title: string; message: string }) {
   return (
@@ -157,6 +160,7 @@ function JournalEntry() {
   const [auditingSession, setAuditingSession] = useState(false);
   const [fundingAccounts, setFundingAccounts] = useState<FundingAccount[]>([]);
   const [selectedFundingAccountIds, setSelectedFundingAccountIds] = useState<string[]>([]);
+  const [killSwitchStatus, setKillSwitchStatus] = useState<WeeklyKillSwitchStatus | null>(null);
   const dropZoneRef = useRef<HTMLDivElement>(null);
   const { evaluateSession, sending: omegaSending, lastEffects: omegaLastEffects, error: omegaError } = useOmega();
 
@@ -192,6 +196,7 @@ function JournalEntry() {
           disciplineInputs,
           allOps,
           fundingAccountsList,
+          killSwitch,
         ] = await Promise.all([
           getJournalEntryByDate(user.id, targetDate),
           getTradingPlan(user.id),
@@ -204,9 +209,11 @@ function JournalEntry() {
           getDisciplineInputsByDate(user.id),
           getAllOperations(user.id),
           getFundingAccounts(user.id),
+          targetDate === todayIso() ? getWeeklyKillSwitchStatus(user.id, new Date()) : Promise.resolve(null),
         ]);
 
         if (cancelled) return;
+        setKillSwitchStatus(killSwitch);
 
         const resolvedEntry = existing ?? emptyJournalEntry(targetDate);
         setPlan(tradingPlan ?? emptyTradingPlan);
@@ -648,6 +655,10 @@ function JournalEntry() {
 
   if (loading) {
     return <div className="skeleton skeleton-table" />;
+  }
+
+  if (targetDate === todayIso() && killSwitchStatus?.triggered) {
+    return <QuarantineScreen status={killSwitchStatus} />;
   }
 
   return (
