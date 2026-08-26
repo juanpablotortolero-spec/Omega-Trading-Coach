@@ -17,6 +17,7 @@ type Effects = {
   streakValidations: { description: string; bonus_xp: number }[];
   sessionVerdict: { ataraxia_score: number | null; verdict: string; went_well: string[]; went_wrong: string[] } | null;
   goalUpdates: { goalId: string; goalText: string; delta: number; newPct: number; reason: string }[];
+  missionProgressUpdates: { missionId: string; missionTitle: string; newPct: number; reason: string }[];
 };
 
 const MAX_TOOL_ITERATIONS = 5;
@@ -81,6 +82,7 @@ Deno.serve(async (req) => {
       streakValidations: [],
       sessionVerdict: null,
       goalUpdates: [],
+      missionProgressUpdates: [],
     };
 
     // deno-lint-ignore no-explicit-any
@@ -326,6 +328,22 @@ async function runTool(
       if (insertError) throw insertError;
 
       effects.goalUpdates.push({ goalId: input.goal_id, goalText, delta: input.delta, newPct, reason: input.reason });
+      return { ok: true };
+    }
+
+    if (name === 'update_mission_progress') {
+      const { data: newPct, error } = await adminClient.rpc('apply_mission_progress', {
+        p_user_id: userId,
+        p_mission_id: input.mission_id,
+        p_delta: Math.abs(input.delta_pct),
+      });
+      if (error) throw error;
+      if (newPct === null || newPct === undefined) {
+        return { ok: false, error: 'Misión no encontrada.' };
+      }
+
+      const missionTitle = context.activeMissions?.find((mission) => mission.id === input.mission_id)?.title ?? input.mission_id;
+      effects.missionProgressUpdates.push({ missionId: input.mission_id, missionTitle, newPct, reason: input.reason });
       return { ok: true };
     }
 

@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { readFunctionErrorMessage } from '../lib/functionsError';
 import { supabase } from '../lib/supabaseClient';
 import {
+  getAiMissions,
   getFundingAccountsForJournalEntry,
   getJournalEntryByDate,
   getLatestJournalEntryDate,
@@ -37,6 +38,7 @@ export type OmegaEffects = {
   streakValidations: { description: string; bonus_xp: number }[];
   sessionVerdict: { ataraxia_score: number | null; verdict: string; went_well: string[]; went_wrong: string[] } | null;
   goalUpdates: { goalId: string; goalText: string; delta: number; newPct: number; reason: string }[];
+  missionProgressUpdates: { missionId: string; missionTitle: string; newPct: number; reason: string }[];
 };
 
 type OmegaRequestType =
@@ -269,16 +271,23 @@ export function useOmegaAgent() {
       setError(null);
 
       try {
-        const [virtusTotal, plan] = await Promise.all([getVirtusTotal(user.id), getTradingPlan(user.id)]);
+        const [virtusTotal, plan, aiMissions] = await Promise.all([
+          getVirtusTotal(user.id),
+          getTradingPlan(user.id),
+          getAiMissions(user.id),
+        ]);
         const stage = currentStage(virtusTotal);
         const automaticGoals = (plan?.goals ?? [])
           .filter((goal) => goal.type === 'automatic')
           .map((goal) => ({ id: goal.id, text: goal.text, progressPct: goal.progressPct }));
+        const activeMissions = aiMissions
+          .filter((mission) => !mission.completed)
+          .map((mission) => ({ id: mission.id, title: mission.title, description: mission.description, progressPct: mission.progress_pct }));
 
         const { data, error: invokeError } = await supabase.functions.invoke('omega-coach', {
           body: {
             messages: nextMessages,
-            context: { virtusStage: stage.level, virtusTotal, automaticGoals, ...contextExtra },
+            context: { virtusStage: stage.level, virtusTotal, automaticGoals, activeMissions, ...contextExtra },
           },
         });
 
@@ -426,6 +435,9 @@ export function useOmegaAgent() {
         getFundingRiskContext(entry.id),
       ]);
       const stage = currentStage(virtusTotal);
+      const automaticGoals = (plan?.goals ?? [])
+        .filter((goal) => goal.type === 'automatic')
+        .map((goal) => ({ id: goal.id, text: goal.text, progressPct: goal.progressPct }));
 
       const { data, error: invokeError } = await supabase.functions.invoke('omega-coach', {
         body: {
@@ -436,6 +448,7 @@ export function useOmegaAgent() {
             ataraxiaPct: score,
             requestType: 'auditoria_head_coach',
             fundingAccounts,
+            automaticGoals,
           },
         },
       });

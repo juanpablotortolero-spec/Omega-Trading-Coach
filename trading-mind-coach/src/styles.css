@@ -1008,6 +1008,102 @@ tbody tr:hover {
   height: 58px;
 }
 
+.mission-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mission-badge-glow-oro { filter: drop-shadow(0 0 6px rgba(201, 166, 107, 0.55)); }
+.mission-badge-glow-platino { filter: drop-shadow(0 0 10px rgba(191, 243, 250, 0.65)); }
+.mission-badge-glow-diamante { filter: drop-shadow(0 0 14px rgba(103, 232, 249, 0.75)); }
+.mission-badge-glow-rubi { filter: drop-shadow(0 0 16px rgba(196, 72, 90, 0.8)); }
+.mission-badge-glow-esmeralda { filter: drop-shadow(0 0 18px rgba(79, 174, 138, 0.85)); }
+
+.badge-gallery-page {
+  min-height: 100vh;
+  padding: 56px 24px;
+  background: var(--bg-app);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.badge-gallery-title {
+  font-family: 'Cinzel', serif;
+  font-weight: 700;
+  font-size: 1.8rem;
+  color: var(--accent-gold);
+  text-align: center;
+}
+
+.badge-gallery-subtitle {
+  color: var(--text-muted);
+  margin-bottom: 32px;
+  text-align: center;
+}
+
+.badge-gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 28px;
+  max-width: 1100px;
+  width: 100%;
+}
+
+.badge-gallery-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 32px 20px;
+}
+
+.badge-gallery-card-name {
+  font-family: 'Cinzel', serif;
+  font-weight: 600;
+  font-size: 1.05rem;
+}
+
+.medal-badge.medal-empty { color: rgba(156, 163, 175, 0.35); }
+.medal-badge.medal-bronce { color: #A9764F; }
+.medal-badge.medal-plata { color: #C6CCD6; }
+.medal-badge.medal-oro { color: var(--accent-gold); }
+.medal-badge.medal-platino { color: #E7EAF0; }
+.medal-badge.medal-diamante { color: #7FC4D8; }
+.medal-badge.medal-rubi { color: #C4485A; }
+.medal-badge.medal-esmeralda { color: #4FAE8A; }
+
+.medal-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 22px 16px;
+  text-align: center;
+}
+
+.medal-card-title {
+  font-family: 'Cinzel', serif;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.medal-card-tier {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.medal-card-progress {
+  width: 100%;
+}
+
+.medal-card-count {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
 .badge-mark + .hint-text {
   font-family: 'Cinzel', serif;
   font-weight: 700;
@@ -5543,17 +5639,20 @@ textarea {
   opacity: 0.6;
 }
 
-.omega-mission-checkbox {
-  margin-top: 3px;
-  width: 18px;
-  height: 18px;
-  accent-color: var(--accent-gold);
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
 .omega-mission-copy {
   flex: 1;
+}
+
+.omega-mission-progress {
+  margin-top: 8px;
+}
+
+.omega-assigned-tag {
+  font-family: 'Cinzel', serif;
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--accent-gold);
+  letter-spacing: 0.02em;
 }
 
 .omega-mission-copy strong {

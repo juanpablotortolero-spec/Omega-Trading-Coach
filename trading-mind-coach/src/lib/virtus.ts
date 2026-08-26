@@ -7,11 +7,11 @@ export type Medal = {
 };
 
 export const stageBadges: Medal[] = [
-  { level: 'LOGOS', name: 'La Lógica y la Base', range: '0 – 500 pts', accent: 'gold', minPoints: 0 },
-  { level: 'ETHOS', name: 'El Carácter y la Disciplina', range: '501 – 1,500 pts', accent: 'bronze', minPoints: 501 },
-  { level: 'PRAXIS', name: 'La Ejecución', range: '1,501 – 3,500 pts', accent: 'gold', minPoints: 1501 },
-  { level: 'KAIROS', name: 'El Momento Oportuno', range: '3,501 – 7,000 pts', accent: 'bronze', minPoints: 3501 },
-  { level: 'OMEGA', name: 'La Culminación Estoica', range: '7,000+ pts', accent: 'gold', minPoints: 7000 },
+  { level: 'LOGOS', name: 'La Lógica y la Base', range: '0 – 2,500 pts', accent: 'gold', minPoints: 0 },
+  { level: 'ETHOS', name: 'El Carácter y la Disciplina', range: '2,500 – 7,500 pts', accent: 'bronze', minPoints: 2500 },
+  { level: 'PRAXIS', name: 'La Ejecución', range: '7,500 – 17,500 pts', accent: 'gold', minPoints: 7500 },
+  { level: 'KAIROS', name: 'El Momento Oportuno', range: '17,500 – 37,500 pts', accent: 'bronze', minPoints: 17500 },
+  { level: 'OMEGA', name: 'La Culminación Estoica', range: '37,500+ pts', accent: 'gold', minPoints: 37500 },
 ];
 
 export function currentStage(totalPoints: number): Medal {
@@ -30,8 +30,16 @@ export function stageProgressPct(totalPoints: number): number {
 
 // "Carga del Rango" — a mayor rango, mayor exigencia: las penalizaciones de
 // Virtus pesan más para reflejar el estándar institucional de cada nivel.
+// 5 escalones (no 3) para que cada rango pese más que el anterior, sin
+// saltos — el mismo error duele progresivamente más a medida que subís.
+const RANK_PENALTY_MULTIPLIERS: Record<string, number> = {
+  LOGOS: 1.0,
+  ETHOS: 1.1,
+  PRAXIS: 1.25,
+  KAIROS: 1.45,
+  OMEGA: 1.7,
+};
+
 export function rankPenaltyMultiplier(level: string): number {
-  if (level === 'KAIROS' || level === 'OMEGA') return 1.5;
-  if (level === 'PRAXIS') return 1.2;
-  return 1; // LOGOS, ETHOS
+  return RANK_PENALTY_MULTIPLIERS[level] ?? 1;
 }

@@ -33,6 +33,13 @@ export function EffectsSummary({ effects }: { effects: OmegaEffects }) {
       kind: g.delta >= 0 ? 'positive' : 'negative',
     }),
   );
+  effects.missionProgressUpdates.forEach((m, i) =>
+    chips.push({
+      key: `mission-progress-${i}`,
+      label: `Progreso: ${m.missionTitle} → ${m.newPct}%`,
+      kind: 'mission',
+    }),
+  );
 
   if (chips.length === 0) return null;
 

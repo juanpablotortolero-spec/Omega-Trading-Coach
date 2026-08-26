@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
 import { getTradingPlan } from './lib/api';
 import Login from './components/Login';
@@ -19,6 +19,8 @@ const AgoraDetail = lazy(() => import('./pages/AgoraDetail'));
 const Perfil = lazy(() => import('./pages/Perfil'));
 const Buzon = lazy(() => import('./pages/Buzon'));
 const Conexiones = lazy(() => import('./pages/Conexiones'));
+const Logros = lazy(() => import('./pages/Logros'));
+const BadgePreviewGallery = lazy(() => import('./pages/BadgePreviewGallery'));
 
 function RouteFallback() {
   return <div className="skeleton skeleton-table" style={{ margin: '24px 0' }} />;
@@ -27,6 +29,7 @@ function RouteFallback() {
 function App() {
   const { session, loading } = useAuth();
   const [planStatus, setPlanStatus] = useState<'loading' | 'missing' | 'ready'>('loading');
+  const location = useLocation();
 
   useEffect(() => {
     if (!session) return;
@@ -40,6 +43,17 @@ function App() {
       cancelled = true;
     };
   }, [session]);
+
+  // Página de preview de diseño puro — se revisa constantemente durante
+  // iteración visual, así que queda por fuera del gate de sesión/onboarding
+  // a propósito (no lee nada de Supabase, no hay nada que proteger).
+  if (location.pathname === '/preview-medallas') {
+    return (
+      <Suspense fallback={<RouteFallback />}>
+        <BadgePreviewGallery />
+      </Suspense>
+    );
+  }
 
   if (loading) {
     return (
@@ -86,6 +100,7 @@ function App() {
           <Route path="/perfil" element={<Perfil />} />
           <Route path="/buzon" element={<Buzon />} />
           <Route path="/conexiones" element={<Conexiones />} />
+          <Route path="/logros" element={<Logros />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>
       </Routes>

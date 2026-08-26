@@ -27,6 +27,7 @@ import {
   getVirtusTotal,
   getWeeklyKillSwitchStatus,
   newOperation,
+  logCoreMissionCompletions,
   postMarketQuizQuestions,
   psychologyEmotions,
   removeScreenshot,
@@ -566,6 +567,15 @@ function JournalEntry() {
         virtusTotalBeforeToday: virtusTotal,
       });
       await replaceVirtusEvents(user.id, entryId, events);
+      await logCoreMissionCompletions(user.id, entryToSave.entry_date, {
+        hasEntry: true,
+        emotionalStateSet: entryToSave.emotional_state !== null,
+        operationsCount: operations.length,
+        directrizSet: Boolean(entryToSave.directriz && entryToSave.directriz.trim().length > 0),
+        quizCompleted: postMarketQuizQuestions.every(
+          (question) => entryToSave.custom_fields.quiz[question.key]?.answer !== null,
+        ),
+      });
 
       setEntry((current) => ({ ...current, id: entryId, custom_fields: entryToSave.custom_fields }));
       setSavedAt(Date.now());

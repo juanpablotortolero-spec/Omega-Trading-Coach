@@ -1660,6 +1660,97 @@ export async function getTodayStatus(userId: string, date: string): Promise<Toda
   };
 }
 
+/**
+ * Catálogo fijo de "Misiones de hoy" — cada una se verifica sola contra
+ * datos reales (TodayStatus), nunca por autoreporte, así que son las únicas
+ * elegibles para el Museo de Medallas (necesitan una identidad estable y
+ * anti-trampa para poder contar repeticiones).
+ */
+export type CoreDailyMissionDef = {
+  key: string;
+  label: string;
+  difficulty: 'FÁCIL' | 'MEDIA';
+  points: number;
+  isDone: (status: TodayStatus) => boolean;
+};
+
+export const coreDailyMissionDefinitions: CoreDailyMissionDef[] = [
+  {
+    key: 'MISSION_EMOTIONAL_STATE',
+    label: 'Registra tu estado emocional de hoy',
+    difficulty: 'FÁCIL',
+    points: 5,
+    isDone: (status) => status.emotionalStateSet,
+  },
+  {
+    key: 'MISSION_DIRECTRIZ_DEFINED',
+    label: 'Define tu Directriz Operativa antes de operar',
+    difficulty: 'FÁCIL',
+    points: 5,
+    isDone: (status) => status.directrizSet,
+  },
+  {
+    key: 'MISSION_JOURNAL_COMPLETED',
+    label: 'Completa tu journal con al menos una operación',
+    difficulty: 'MEDIA',
+    points: 10,
+    isDone: (status) => status.operationsCount > 0,
+  },
+  {
+    key: 'MISSION_QUIZ_COMPLETED',
+    label: 'Completa el Quiz Post-Mercado',
+    difficulty: 'MEDIA',
+    points: 15,
+    isDone: (status) => status.quizCompleted,
+  },
+];
+
+/**
+ * Registra en core_mission_completions cada misión diaria cumplida ese día —
+ * se llama al sellar (junto a replaceVirtusEvents). `ignoreDuplicates` evita
+ * duplicar el conteo si el mismo día se vuelve a sellar tras una edición.
+ */
+export async function logCoreMissionCompletions(
+  userId: string,
+  entryDate: string,
+  status: TodayStatus,
+): Promise<void> {
+  const completedKeys = coreDailyMissionDefinitions
+    .filter((mission) => mission.isDone(status))
+    .map((mission) => mission.key);
+  if (completedKeys.length === 0) return;
+
+  const rows = completedKeys.map((key) => ({ user_id: userId, mission_key: key, entry_date: entryDate }));
+  const { error } = await supabase
+    .from('core_mission_completions')
+    .upsert(rows, { onConflict: 'user_id,mission_key,entry_date', ignoreDuplicates: true });
+  if (error) throw error;
+}
+
+export type MissionCompletionCounts = Record<string, number>;
+
+export async function getCoreMissionCompletionCounts(userId: string): Promise<MissionCompletionCounts> {
+  const { data, error } = await supabase.from('core_mission_completions').select('mission_key').eq('user_id', userId);
+  if (error) throw error;
+
+  const counts: MissionCompletionCounts = {};
+  (data ?? []).forEach((row) => {
+    counts[row.mission_key] = (counts[row.mission_key] ?? 0) + 1;
+  });
+  return counts;
+}
+
+export async function getWeeklyMissionCompletionCounts(userId: string): Promise<MissionCompletionCounts> {
+  const { data, error } = await supabase.from('weekly_missions').select('mission_key').eq('user_id', userId);
+  if (error) throw error;
+
+  const counts: MissionCompletionCounts = {};
+  (data ?? []).forEach((row) => {
+    counts[row.mission_key] = (counts[row.mission_key] ?? 0) + 1;
+  });
+  return counts;
+}
+
 // ---------------------------------------------------------------------------
 // Misiones semanales — Módulo 5A
 // ---------------------------------------------------------------------------
@@ -1806,10 +1897,11 @@ export async function getCompletedWeeklyMissionKeys(userId: string, weekStart: s
 }
 
 // ---------------------------------------------------------------------------
-// Misiones y veredictos de Omega (Fase visual v4) — solo lectura desde el
-// cliente; las inserciones las hace la Edge Function omega-coach con la
-// Service Role Key. `completed` es la única columna que el propio usuario
-// puede actualizar (ver policy "update own ai_missions completion").
+// Misiones de Omega — 100% solo lectura desde el cliente. Las inserciones Y
+// el progreso los escribe exclusivamente la Edge Function omega-coach con la
+// Service Role Key (tool `update_mission_progress`) — el trader no tiene
+// ninguna vía para marcar su propia misión como completada; es Omega quien
+// verifica la evidencia real de la sesión antes de mover progress_pct.
 // ---------------------------------------------------------------------------
 
 export type AiMissionFrequency = 'diaria' | 'semanal' | 'unica';
@@ -1820,6 +1912,7 @@ export type AiMission = {
   description: string;
   reward_xp: number;
   completed: boolean;
+  progress_pct: number;
   frequency: AiMissionFrequency;
   created_at: string;
 };
@@ -1827,28 +1920,12 @@ export type AiMission = {
 export async function getAiMissions(userId: string): Promise<AiMission[]> {
   const { data, error } = await supabase
     .from('ai_missions')
-    .select('id, title, description, reward_xp, completed, frequency, created_at')
+    .select('id, title, description, reward_xp, completed, progress_pct, frequency, created_at')
     .eq('user_id', userId)
     .order('created_at', { ascending: false });
 
   if (error) throw error;
   return (data ?? []) as AiMission[];
-}
-
-/**
- * Único camino para marcar una misión como completada — pasa por la función
- * de Postgres `set_ai_mission_completed` (SECURITY DEFINER) en vez de un
- * update directo, porque esa función es la que acredita el XP a
- * `virtus_ai_events` la PRIMERA vez que se completa (flag `xp_awarded`,
- * permanente) — un update directo no podría hacer eso sin abrirle esa tabla
- * de escritura al cliente, que es justo lo que evitamos desde la Fase 1.
- */
-export async function updateAiMissionCompleted(missionId: string, completed: boolean): Promise<void> {
-  const { error } = await supabase.rpc('set_ai_mission_completed', {
-    p_mission_id: missionId,
-    p_completed: completed,
-  });
-  if (error) throw error;
 }
 
 /** Fecha (YYYY-MM-DD) del journal más reciente del usuario, sellado o no. */

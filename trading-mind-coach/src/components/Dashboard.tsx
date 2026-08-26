@@ -8,6 +8,7 @@ import { useOmega } from '../contexts/OmegaContext';
 import { useRefresh } from '../contexts/RefreshContext';
 import {
   awardWeeklyMissions,
+  coreDailyMissionDefinitions,
   getAiMissions,
   getAllOperations,
   getLatestGoalProgressReasons,
@@ -30,7 +31,6 @@ import {
   getVirtusTotal,
   getWeekBounds,
   getWeeklyMissionsStatus,
-  updateAiMissionCompleted,
   weeklyMissionDefinitions,
   type Agora,
   type AiMission,
@@ -284,25 +284,16 @@ function Dashboard() {
   }, [user, version]);
 
   useEffect(() => {
-    if (omegaLastEffects && omegaLastEffects.goalUpdates.length > 0) {
+    if (
+      omegaLastEffects &&
+      (omegaLastEffects.goalUpdates.length > 0 ||
+        omegaLastEffects.missionsAssigned.length > 0 ||
+        omegaLastEffects.missionProgressUpdates.length > 0)
+    ) {
       bump();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [omegaLastEffects]);
-
-  const toggleAiMission = async (mission: AiMission) => {
-    const nextCompleted = !mission.completed;
-    setAiMissions((current) =>
-      current.map((m) => (m.id === mission.id ? { ...m, completed: nextCompleted } : m)),
-    );
-    try {
-      await updateAiMissionCompleted(mission.id, nextCompleted);
-    } catch {
-      setAiMissions((current) =>
-        current.map((m) => (m.id === mission.id ? { ...m, completed: mission.completed } : m)),
-      );
-    }
-  };
 
   const stage = currentStage(virtusTotal);
   const namedGoals = goals.filter((goal) => goal.text.trim().length > 0);
@@ -374,33 +365,20 @@ function Dashboard() {
         <section className="panel plan-section">
           <div className="section-header">
             <h3>Misiones de hoy</h3>
-            <span className="hint-text">ver todas →</span>
+            <Link to="/logros" className="back-link">
+              ver todas →
+            </Link>
           </div>
           <div className="mission-list">
-            <MissionRow
-              label="Registra tu estado emocional de hoy"
-              difficulty="FÁCIL"
-              points={5}
-              done={todayStatus.emotionalStateSet}
-            />
-            <MissionRow
-              label="Define tu Directriz Operativa antes de operar"
-              difficulty="FÁCIL"
-              points={5}
-              done={todayStatus.directrizSet}
-            />
-            <MissionRow
-              label="Completa tu journal con al menos una operación"
-              difficulty="MEDIA"
-              points={10}
-              done={todayStatus.operationsCount > 0}
-            />
-            <MissionRow
-              label="Completa el Quiz Post-Mercado"
-              difficulty="MEDIA"
-              points={15}
-              done={todayStatus.quizCompleted}
-            />
+            {coreDailyMissionDefinitions.map((mission) => (
+              <MissionRow
+                key={mission.key}
+                label={mission.label}
+                difficulty={mission.difficulty}
+                points={mission.points}
+                done={mission.isDone(todayStatus)}
+              />
+            ))}
           </div>
         </section>
 
@@ -427,9 +405,9 @@ function Dashboard() {
         <section className="panel plan-section">
           <div className="section-header">
             <h3>Centro de Misiones Activas</h3>
-            <span className="hint-text">asignadas por Omega</span>
+            <span className="omega-assigned-tag">asignadas por Omega</span>
           </div>
-          {aiMissions.filter((m) => !m.completed).length === 0 && aiMissions.filter((m) => m.completed).length === 0 ? (
+          {aiMissions.length === 0 ? (
             <div className="empty-state">
               <span className="empty-icon" />
               <h3>Sin misiones activas</h3>
@@ -441,13 +419,6 @@ function Dashboard() {
                 .sort((a, b) => Number(a.completed) - Number(b.completed))
                 .map((mission) => (
                   <div key={mission.id} className={`omega-mission-card ${mission.completed ? 'completed' : ''}`}>
-                    <input
-                      type="checkbox"
-                      className="omega-mission-checkbox"
-                      checked={mission.completed}
-                      onChange={() => toggleAiMission(mission)}
-                      aria-label={`Marcar "${mission.title}" como completada`}
-                    />
                     <div className="omega-mission-copy">
                       <strong>{mission.title}</strong>
                       <p className="hint-text">{mission.description}</p>
@@ -455,6 +426,14 @@ function Dashboard() {
                         <span className="nav-soon">{mission.frequency}</span>
                         <span className="hint-text">+{mission.reward_xp} XP</span>
                       </div>
+                      <div className="gauge-wrap omega-mission-progress">
+                        <span className="gauge-fill" style={{ width: `${mission.progress_pct}%` }} />
+                      </div>
+                      <p className="hint-text">
+                        {mission.completed
+                          ? 'Verificada por Omega — XP acreditado.'
+                          : `Omega verifica tu progreso real: ${mission.progress_pct}%`}
+                      </p>
                     </div>
                   </div>
                 ))}

@@ -34,6 +34,13 @@ export type OmegaContext = {
    */
   automaticGoals?: { id: string; text: string; progressPct: number }[];
   /**
+   * Misiones activas del trader en "Centro de Misiones Activas" (ai_missions
+   * no completadas) — Omega revisa la evidencia real de la sesión contra
+   * esta lista y decide por su cuenta si corresponde mover el progreso con
+   * update_mission_progress. El trader nunca marca esto a mano.
+   */
+  activeMissions?: { id: string; title: string; description: string; progressPct: number }[];
+  /**
    * Cuentas de fondeo reales asociadas al journal de esta sesión (ver
    * journal_funding_accounts) — `dangerPct` ya viene calculado por el hook
    * con la MISMA fórmula que el indicador rojo de FundingAccountCard, así
@@ -71,12 +78,26 @@ function formatFundingAccountsBlock(context: OmegaContext): string {
   }`;
 }
 
+function formatAutomaticGoalsBlock(context: OmegaContext): string {
+  if (!context.automaticGoals || context.automaticGoals.length === 0) return '';
+  return `\nMetas automáticas del trader (progreso real, tú lo ajustas con update_goal_progress):\n${context.automaticGoals
+    .map((goal) => `- id "${goal.id}": "${goal.text}" — ${goal.progressPct}% actual`)
+    .join('\n')}\n`;
+}
+
+function formatActiveMissionsBlock(context: OmegaContext): string {
+  if (!context.activeMissions || context.activeMissions.length === 0) return '';
+  return `\nMisiones activas asignadas por vos, todavía sin completar (revisa si la sesión trae evidencia real de avance):\n${context.activeMissions
+    .map((mission) => `- id "${mission.id}": "${mission.title}" (${mission.description}) — ${mission.progressPct}% actual`)
+    .join('\n')}\n`;
+}
+
 const REQUEST_TYPE_INSTRUCTIONS: Record<OmegaRequestType, string> = {
   chat: 'Esta es una charla normal — responde con criterio, sin forzar veredictos ni tools si no corresponden.',
   auditoria_post_sesion:
     'Esto es una AUDITORÍA POST-SESIÓN formal, no una charla casual — cruza el journal con las reglas del Manual Operativo de arriba, y usa la tool evaluate_session para dejar un veredicto estructurado (qué se hizo bien, qué se hizo mal) además de cualquier otra tool que corresponda. No te limites a describir las acciones en texto: ejecútalas.',
   briefing_pre_sesion:
-    'Esto es un BRIEFING PRE-SESIÓN — el trader todavía no ha operado hoy. No hay journal que auditar. Genera proactivamente un briefing corto basado en las reglas de su Manual Operativo para hoy y su tendencia reciente de Virtus/Ataraxia (ambas en el contexto): qué debe vigilar, qué patrón reciente no debe repetir, y un recordatorio de una regla concreta de su plan. Si el digest trae noticias de alto impacto reales para hoy (CPI, NFP, FOMC, etc.) Y el trader tiene un "Plan ante eventos macro" definido, cruza ambos explícitamente en tu respuesta (ej. "Hoy hay CPI a las 8:30 AM. Tu manual dicta no operar 15 minutos antes ni después de la noticia. Modula tu riesgo.") — no los menciones por separado sin conectarlos. No inventes datos de operaciones — hoy todavía no hay ninguna.',
+    'Esto es un BRIEFING PRE-SESIÓN — el trader todavía no ha operado hoy. No hay journal que auditar. Genera proactivamente un briefing corto basado en las reglas de su Manual Operativo para hoy y su tendencia reciente de Virtus/Ataraxia (ambas en el contexto): qué debe vigilar, qué patrón reciente no debe repetir, y un recordatorio de una regla concreta de su plan. Si el digest trae noticias de alto impacto reales para hoy (CPI, NFP, FOMC, etc.) Y el trader tiene un "Plan ante eventos macro" definido, cruza ambos explícitamente en tu respuesta (ej. "Hoy hay CPI a las 8:30 AM. Tu manual dicta no operar 15 minutos antes ni después de la noticia. Modula tu riesgo.") — no los menciones por separado sin conectarlos. No inventes datos de operaciones — hoy todavía no hay ninguna. Si hay metas automáticas en el contexto, cierra el briefing señalando cuál está más rezagada y qué acción concreta de HOY la empujaría — no la ignores ni la dejes solo como un dato de fondo.',
   // No se usa nunca — buildSystemPrompt retorna antes de llegar acá para este requestType (ver buildHeadCoachSystemPrompt).
   auditoria_head_coach: '',
   // No se usa nunca — buildSystemPrompt retorna antes de llegar acá para este requestType (ver buildWeeklyRecapSystemPrompt).
@@ -98,8 +119,9 @@ function buildHeadCoachSystemPrompt(context: OmegaContext): string {
 Sé conciso en cada campo de texto (1-2 frases, nunca un párrafo largo) y limita "strengths" y "weaknesses" a máximo 2 elementos cada uno, y "daily_missions" a máximo 2 — el JSON completo tiene que caber holgado en tu respuesta, sin cortarse a mitad de un campo.
 
 Contexto real del trader (no lo inventes, úsalo tal cual): Rango Virtus ${context.virtusStage}, Virtus total ${context.virtusTotal}, Ataraxia ${context.ataraxiaPct !== null ? `${context.ataraxiaPct}%` : 'sin datos suficientes todavía hoy'}.
-${formatFundingAccountsBlock(context)}
-Si el CANDADO DE RIESGO está activado arriba: "daily_feedback" tiene que reflejar la advertencia severa explícitamente (no la omitas ni la suavices), y uno de los "daily_missions" tiene que ser, concretamente, una misión de reducción de riesgo (ej. bajar el lotaje o el riesgo por operación) — no una misión genérica.`;
+${formatFundingAccountsBlock(context)}${formatAutomaticGoalsBlock(context)}
+Si el CANDADO DE RIESGO está activado arriba: "daily_feedback" tiene que reflejar la advertencia severa explícitamente (no la omitas ni la suavices), y uno de los "daily_missions" tiene que ser, concretamente, una misión de reducción de riesgo (ej. bajar el lotaje o el riesgo por operación) — no una misión genérica.
+Si arriba hay metas automáticas, "daily_feedback" debe mencionar en una frase cómo el desempeño de hoy la acerca o la aleja — no la ignores solo porque este JSON no tiene un campo dedicado a eso.`;
 }
 
 /**
@@ -136,13 +158,14 @@ Tono: crudo, estoico, directo. Sin lenguaje motivacional vacío, sin celebrar de
 
 La Ataraxia (0-100%) que ves en el contexto es un dato REAL ya calculado por el sistema a partir del journal del trader — nunca la recalcules ni des tu propio número como si fuera el oficial. Tu trabajo es interpretarla y emitir juicio citando los marcos de arriba, no re-derivarla.
 
-Tienes acceso a 6 herramientas. Úsalas con criterio, no en cada respuesta — y cuando decidas que una acción corresponde, EJECÚTALA con la tool correspondiente en vez de solo describirla en texto:
+Tienes acceso a 7 herramientas. Úsalas con criterio, no en cada respuesta — y cuando decidas que una acción corresponde, EJECÚTALA con la tool correspondiente en vez de solo describirla en texto:
 - evaluate_session: veredicto formal de una sesión completa (qué se hizo bien, qué se hizo mal) — úsala siempre que el contexto sea una auditoría post-sesión real, no en charla suelta.
 - update_virtus_and_xp: para premiar ejecución mecánica impecable o castigar indisciplina real (romper el plan, exceder el riesgo, operar fuera de ventana, venganza). No la uses por charla casual.
 - validate_positive_streak: cuando identifiques una racha real de disciplina sostenida (varios días o sesiones seguidas cumpliendo el plan) — reconocimiento explícito, distinto de un premio puntual.
 - trigger_ui_alert: solo para conductas destructivas que requieren interrumpir al trader AHORA (riesgo de venganza, ruptura repetida del plan) — usa 'warning' o 'critical' para eso; 'info' solo para un aviso menor no urgente.
 - assign_ai_mission: misión concreta y medible ligada a un patrón real — puede ser diaria, semanal o única.
-- update_goal_progress: solo para las metas listadas como "automáticas" abajo (las 'manual' las controla el trader con su propio slider, nunca las toques) — cuando haya evidencia real de avance o retroceso hacia una de esas metas en esta sesión o conversación. Usa el id exacto listado. Muévete de a poco (delta modesto, normalmente entre 3 y 15 puntos; negativo si hubo un retroceso real) — una meta se construye de a poco, nunca de un salto a 100%. No la uses sin una razón concreta y verificable.
+- update_goal_progress: solo para las metas listadas como "automáticas" abajo (las 'manual' las controla el trader con su propio slider, nunca las toques) — cuando haya evidencia real de avance o retroceso hacia una de esas metas en esta sesión o conversación. Usa el id exacto listado. Muévete de a poco (delta modesto, normalmente entre 3 y 15 puntos; negativo si hubo un retroceso real) — una meta se construye de a poco, nunca de un salto a 100%. No la uses sin una razón concreta y verificable. IMPORTANTE: cuando la uses, mencioná también en tu respuesta de texto qué hizo el trader que la impulsó (o qué le falta concretamente) — nunca la muevas en silencio sin que el trader se entere por qué cambió.
+- update_mission_progress: revisa las "misiones activas" listadas abajo contra la evidencia real de esta sesión o conversación — nunca le preguntes al trader si la cumplió, decidilo vos con los datos reales (journal, operaciones, lo que te cuenta). Si hay evidencia de avance total o parcial, usa esta tool con un delta_pct (puede ser 100 de una vez si la evidencia es concluyente y binaria, o modesto si es progreso parcial). El trader ya NO puede marcar sus propias misiones como completadas — esta tool es el único camino.
 
 CANDADO DE RIESGO (regla dura, no opcional): si el contexto de abajo trae cuentas de fondeo y alguna tiene un "% de distancia consumida hacia la quema" de ${RISK_LOCK_DANGER_PCT}% o más (es decir, está a menos de ${100 - RISK_LOCK_DANGER_PCT}% de su límite de pérdida MLL), es OBLIGATORIO: (1) usar trigger_ui_alert con severidad 'critical' advirtiendo esto explícitamente, y (2) usar assign_ai_mission para asignar una misión concreta de reducción de riesgo (ej. bajar el lotaje, reducir el riesgo por operación). No lo dejes solo en el texto de tu respuesta — ejecuta ambas tools.
 
@@ -150,13 +173,7 @@ Contexto actual del trader (real, de su cuenta):
 - Rango Virtus: ${context.virtusStage}
 - Puntos Virtus totales: ${context.virtusTotal}
 - Ataraxia (ejecución mecánica y paz mental) hoy: ${context.ataraxiaPct !== null ? `${context.ataraxiaPct}%` : 'sin datos suficientes todavía hoy'}
-${
-  context.automaticGoals && context.automaticGoals.length > 0
-    ? `\nMetas automáticas (progreso real, tú lo ajustas con update_goal_progress):\n${context.automaticGoals
-        .map((goal) => `- id "${goal.id}": "${goal.text}" — ${goal.progressPct}% actual`)
-        .join('\n')}\n`
-    : ''
-}${formatFundingAccountsBlock(context)}${context.sessionDigest ? `\n${context.sessionDigest}\n` : ''}
+${formatAutomaticGoalsBlock(context)}${formatActiveMissionsBlock(context)}${formatFundingAccountsBlock(context)}${context.sessionDigest ? `\n${context.sessionDigest}\n` : ''}
 ${REQUEST_TYPE_INSTRUCTIONS[requestType]}`;
 }
 
@@ -258,6 +275,25 @@ export const OMEGA_TOOLS = [
         reason: { type: 'string', description: 'Motivo concreto y breve, en español, que el trader pueda entender.' },
       },
       required: ['goal_id', 'delta', 'reason'],
+    },
+  },
+  {
+    name: 'update_mission_progress',
+    description:
+      'Mueve el % de progreso real de una misión activa (ai_missions) hacia arriba, según evidencia concreta en la sesión o conversación. El trader no puede marcar sus propias misiones — este es el único camino para acreditar progreso y, al llegar a 100%, el XP.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        mission_id: { type: 'string', description: 'Id exacto de la misión, tal como aparece en el contexto.' },
+        delta_pct: {
+          type: 'integer',
+          minimum: 1,
+          maximum: 100,
+          description: 'Cuánto avanza el progreso (siempre positivo) — 100 si la evidencia es concluyente y binaria, menos si es parcial.',
+        },
+        reason: { type: 'string', description: 'Evidencia concreta observada, en español, que justifica el avance.' },
+      },
+      required: ['mission_id', 'delta_pct', 'reason'],
     },
   },
 ] as const;
