@@ -2,7 +2,7 @@
 // index.ts para que el handler HTTP quede legible (mismo patrón que
 // _shared/tradovate.ts para tradovate-connect/tradovate-sync).
 
-export type OmegaRequestType = 'chat' | 'briefing_pre_sesion' | 'auditoria_post_sesion';
+export type OmegaRequestType = 'chat' | 'briefing_pre_sesion' | 'auditoria_post_sesion' | 'auditoria_head_coach';
 
 export type OmegaContext = {
   virtusStage: string;
@@ -21,18 +21,86 @@ export type OmegaContext = {
   requestType?: OmegaRequestType;
   /** Fecha (YYYY-MM-DD) de la sesión evaluada — usada al guardar evaluate_session. Por defecto, hoy. */
   sessionDate?: string;
+  /**
+   * Metas marcadas como "automática" en el Manual Operativo, con su id real —
+   * necesario para que update_goal_progress pueda referenciar exactamente
+   * cuál mover. Las metas 'manual' del trader ni se listan aquí ni son
+   * tocables por esta tool.
+   */
+  automaticGoals?: { id: string; text: string; progressPct: number }[];
+  /**
+   * Cuentas de fondeo reales asociadas al journal de esta sesión (ver
+   * journal_funding_accounts) — `dangerPct` ya viene calculado por el hook
+   * con la MISMA fórmula que el indicador rojo de FundingAccountCard, así
+   * Omega interpreta el riesgo real en vez de re-derivarlo o inventarlo.
+   */
+  fundingAccounts?: {
+    accountName: string;
+    currentBalance: number;
+    startingBalance: number;
+    drawdownLimit: number;
+    dailyLossLimit: number | null;
+    dangerPct: number;
+  }[];
 };
+
+/** Umbral del candado de riesgo: a partir de acá, la advertencia y la misión de reducción de riesgo son obligatorias. */
+const RISK_LOCK_DANGER_PCT = 80;
+
+function formatFundingAccountsBlock(context: OmegaContext): string {
+  if (!context.fundingAccounts || context.fundingAccounts.length === 0) return '';
+
+  const lines = context.fundingAccounts
+    .map(
+      (account) =>
+        `- ${account.accountName}: balance $${account.currentBalance} (inicio $${account.startingBalance}), MLL $${account.drawdownLimit}${account.dailyLossLimit !== null ? `, DLL $${account.dailyLossLimit}` : ''} — ${account.dangerPct}% de distancia ya consumida hacia la quema`,
+    )
+    .join('\n');
+
+  const anyAtRisk = context.fundingAccounts.some((account) => account.dangerPct >= RISK_LOCK_DANGER_PCT);
+
+  return `\nCuentas de fondeo usadas en esta sesión:\n${lines}\n${
+    anyAtRisk
+      ? `\nCANDADO DE RIESGO ACTIVADO: al menos una cuenta arriba está a menos de ${100 - RISK_LOCK_DANGER_PCT}% de distancia de su límite de pérdida (MLL). Es OBLIGATORIO emitir una advertencia severa sobre esto y asignar una misión obligatoria de reducción de riesgo (ej. bajar el lotaje, reducir el riesgo por operación) — no es opcional, no lo suavices.\n`
+      : ''
+  }`;
+}
 
 const REQUEST_TYPE_INSTRUCTIONS: Record<OmegaRequestType, string> = {
   chat: 'Esta es una charla normal — responde con criterio, sin forzar veredictos ni tools si no corresponden.',
   auditoria_post_sesion:
     'Esto es una AUDITORÍA POST-SESIÓN formal, no una charla casual — cruza el journal con las reglas del Manual Operativo de arriba, y usa la tool evaluate_session para dejar un veredicto estructurado (qué se hizo bien, qué se hizo mal) además de cualquier otra tool que corresponda. No te limites a describir las acciones en texto: ejecútalas.',
   briefing_pre_sesion:
-    'Esto es un BRIEFING PRE-SESIÓN — el trader todavía no ha operado hoy. No hay journal que auditar. Genera proactivamente un briefing corto basado en las reglas de su Manual Operativo para hoy y su tendencia reciente de Virtus/Ataraxia (ambas en el contexto): qué debe vigilar, qué patrón reciente no debe repetir, y un recordatorio de una regla concreta de su plan. No inventes datos de operaciones — hoy todavía no hay ninguna.',
+    'Esto es un BRIEFING PRE-SESIÓN — el trader todavía no ha operado hoy. No hay journal que auditar. Genera proactivamente un briefing corto basado en las reglas de su Manual Operativo para hoy y su tendencia reciente de Virtus/Ataraxia (ambas en el contexto): qué debe vigilar, qué patrón reciente no debe repetir, y un recordatorio de una regla concreta de su plan. Si el digest trae noticias de alto impacto reales para hoy (CPI, NFP, FOMC, etc.) Y el trader tiene un "Plan ante eventos macro" definido, cruza ambos explícitamente en tu respuesta (ej. "Hoy hay CPI a las 8:30 AM. Tu manual dicta no operar 15 minutos antes ni después de la noticia. Modula tu riesgo.") — no los menciones por separado sin conectarlos. No inventes datos de operaciones — hoy todavía no hay ninguna.',
+  // No se usa nunca — buildSystemPrompt retorna antes de llegar acá para este requestType (ver buildHeadCoachSystemPrompt).
+  auditoria_head_coach: '',
 };
+
+/**
+ * Prompt aislado para el "Head Coach" (OmegaDashboard) — a diferencia de
+ * todos los demás requestType, esta llamada NUNCA debe usar tools (index.ts
+ * omite `tools` del todo cuando requestType es este), así el modelo no tiene
+ * forma de desviarse a un tool_use: solo puede responder texto, y ese texto
+ * DEBE ser el JSON exacto que el frontend va a parsear directo para pintar
+ * el medidor de Tendler, fortalezas/fugas, misiones y la alerta de auditoría.
+ */
+function buildHeadCoachSystemPrompt(context: OmegaContext): string {
+  return `Eres Omega, el motor cognitivo y Head Coach de trading. Evalúa la bitácora diaria aplicando conceptos de Jared Tendler y SMC/ICT. Tu ÚNICA respuesta permitida debe ser un objeto JSON válido, sin texto antes ni después, sin bloques de markdown ni triple backticks, con esta estructura exacta:
+{ "game_state": "A, B o C", "daily_feedback": "Texto corto", "strengths": [{ "behavior": "", "hypothesis": "", "fix": "" }], "weaknesses": [{ "behavior": "", "hypothesis": "", "fix": "" }], "daily_missions": [{ "id": 1, "task": "", "xpReward": 100 }], "manual_audit": { "issue_detected": "", "suggested_rule": "" } }
+
+Sé conciso en cada campo de texto (1-2 frases, nunca un párrafo largo) y limita "strengths" y "weaknesses" a máximo 2 elementos cada uno, y "daily_missions" a máximo 2 — el JSON completo tiene que caber holgado en tu respuesta, sin cortarse a mitad de un campo.
+
+Contexto real del trader (no lo inventes, úsalo tal cual): Rango Virtus ${context.virtusStage}, Virtus total ${context.virtusTotal}, Ataraxia ${context.ataraxiaPct !== null ? `${context.ataraxiaPct}%` : 'sin datos suficientes todavía hoy'}.
+${formatFundingAccountsBlock(context)}
+Si el CANDADO DE RIESGO está activado arriba: "daily_feedback" tiene que reflejar la advertencia severa explícitamente (no la omitas ni la suavices), y uno de los "daily_missions" tiene que ser, concretamente, una misión de reducción de riesgo (ej. bajar el lotaje o el riesgo por operación) — no una misión genérica.`;
+}
 
 export function buildSystemPrompt(context: OmegaContext): string {
   const requestType = context.requestType ?? 'chat';
+
+  if (requestType === 'auditoria_head_coach') {
+    return buildHeadCoachSystemPrompt(context);
+  }
 
   return `Eres Omega, coach y psicólogo de trading institucional. Tu autoridad abarca evaluar la Ataraxia del trader, dictaminar sobre la calidad de su ejecución, detectar patrones de ansiedad, FOMO, impaciencia, venganza y otros sesgos, y guiar activamente su proceso — SMC como marco técnico de fondo, pero tu terreno real es la disciplina y la psicología.
 
@@ -44,18 +112,27 @@ Tono: crudo, estoico, directo. Sin lenguaje motivacional vacío, sin celebrar de
 
 La Ataraxia (0-100%) que ves en el contexto es un dato REAL ya calculado por el sistema a partir del journal del trader — nunca la recalcules ni des tu propio número como si fuera el oficial. Tu trabajo es interpretarla y emitir juicio citando los marcos de arriba, no re-derivarla.
 
-Tienes acceso a 5 herramientas. Úsalas con criterio, no en cada respuesta — y cuando decidas que una acción corresponde, EJECÚTALA con la tool correspondiente en vez de solo describirla en texto:
+Tienes acceso a 6 herramientas. Úsalas con criterio, no en cada respuesta — y cuando decidas que una acción corresponde, EJECÚTALA con la tool correspondiente en vez de solo describirla en texto:
 - evaluate_session: veredicto formal de una sesión completa (qué se hizo bien, qué se hizo mal) — úsala siempre que el contexto sea una auditoría post-sesión real, no en charla suelta.
 - update_virtus_and_xp: para premiar ejecución mecánica impecable o castigar indisciplina real (romper el plan, exceder el riesgo, operar fuera de ventana, venganza). No la uses por charla casual.
 - validate_positive_streak: cuando identifiques una racha real de disciplina sostenida (varios días o sesiones seguidas cumpliendo el plan) — reconocimiento explícito, distinto de un premio puntual.
 - trigger_ui_alert: solo para conductas destructivas que requieren interrumpir al trader AHORA (riesgo de venganza, ruptura repetida del plan) — usa 'warning' o 'critical' para eso; 'info' solo para un aviso menor no urgente.
 - assign_ai_mission: misión concreta y medible ligada a un patrón real — puede ser diaria, semanal o única.
+- update_goal_progress: solo para las metas listadas como "automáticas" abajo (las 'manual' las controla el trader con su propio slider, nunca las toques) — cuando haya evidencia real de avance o retroceso hacia una de esas metas en esta sesión o conversación. Usa el id exacto listado. Muévete de a poco (delta modesto, normalmente entre 3 y 15 puntos; negativo si hubo un retroceso real) — una meta se construye de a poco, nunca de un salto a 100%. No la uses sin una razón concreta y verificable.
+
+CANDADO DE RIESGO (regla dura, no opcional): si el contexto de abajo trae cuentas de fondeo y alguna tiene un "% de distancia consumida hacia la quema" de ${RISK_LOCK_DANGER_PCT}% o más (es decir, está a menos de ${100 - RISK_LOCK_DANGER_PCT}% de su límite de pérdida MLL), es OBLIGATORIO: (1) usar trigger_ui_alert con severidad 'critical' advirtiendo esto explícitamente, y (2) usar assign_ai_mission para asignar una misión concreta de reducción de riesgo (ej. bajar el lotaje, reducir el riesgo por operación). No lo dejes solo en el texto de tu respuesta — ejecuta ambas tools.
 
 Contexto actual del trader (real, de su cuenta):
 - Rango Virtus: ${context.virtusStage}
 - Puntos Virtus totales: ${context.virtusTotal}
 - Ataraxia (ejecución mecánica y paz mental) hoy: ${context.ataraxiaPct !== null ? `${context.ataraxiaPct}%` : 'sin datos suficientes todavía hoy'}
-${context.sessionDigest ? `\n${context.sessionDigest}\n` : ''}
+${
+  context.automaticGoals && context.automaticGoals.length > 0
+    ? `\nMetas automáticas (progreso real, tú lo ajustas con update_goal_progress):\n${context.automaticGoals
+        .map((goal) => `- id "${goal.id}": "${goal.text}" — ${goal.progressPct}% actual`)
+        .join('\n')}\n`
+    : ''
+}${formatFundingAccountsBlock(context)}${context.sessionDigest ? `\n${context.sessionDigest}\n` : ''}
 ${REQUEST_TYPE_INSTRUCTIONS[requestType]}`;
 }
 
@@ -138,6 +215,25 @@ export const OMEGA_TOOLS = [
         },
       },
       required: ['title', 'description', 'reward_xp'],
+    },
+  },
+  {
+    name: 'update_goal_progress',
+    description:
+      'Ajusta el % de progreso de una meta marcada "automática" en el Manual Operativo, hacia arriba o hacia abajo, según evidencia real de avance o retroceso. Nunca funciona sobre metas "manual". El goal_id debe ser exactamente uno de los listados en el contexto.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        goal_id: { type: 'string', description: 'Id exacto de la meta, tal como aparece en el contexto.' },
+        delta: {
+          type: 'integer',
+          minimum: -30,
+          maximum: 30,
+          description: 'Cambio de porcentaje, positivo (avance) o negativo (retroceso). Modesto, no un salto grande.',
+        },
+        reason: { type: 'string', description: 'Motivo concreto y breve, en español, que el trader pueda entender.' },
+      },
+      required: ['goal_id', 'delta', 'reason'],
     },
   },
 ] as const;

@@ -16,6 +16,7 @@ type Effects = {
   uiAlerts: { message: string; severity: 'info' | 'warning' | 'critical' }[];
   streakValidations: { description: string; bonus_xp: number }[];
   sessionVerdict: { ataraxia_score: number | null; verdict: string; went_well: string[]; went_wrong: string[] } | null;
+  goalUpdates: { goalId: string; goalText: string; delta: number; newPct: number; reason: string }[];
 };
 
 const MAX_TOOL_ITERATIONS = 5;
@@ -79,18 +80,28 @@ Deno.serve(async (req) => {
       uiAlerts: [],
       streakValidations: [],
       sessionVerdict: null,
+      goalUpdates: [],
     };
 
     // deno-lint-ignore no-explicit-any
     const conversation: any[] = inMessages.map((m) => ({ role: m.role, content: m.content }));
 
+    // El Head Coach (OmegaDashboard) exige que la ÚNICA respuesta sea un
+    // JSON puro — si le dejamos tools disponibles, el modelo podría desviarse
+    // a un tool_use en vez de texto. Se omiten del todo para esta llamada.
+    const isHeadCoach = context.requestType === 'auditoria_head_coach';
+
     let finalText = '';
     for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration += 1) {
       const response = await anthropic.messages.create({
         model: MODEL,
-        max_tokens: 2048,
+        // El Head Coach devuelve un JSON con varios arrays (strengths,
+        // weaknesses, daily_missions) más texto largo en cada campo — con
+        // digests reales (Manual Operativo detallado) 2048 no alcanza y la
+        // respuesta se corta a mitad del JSON, rompiendo el parseo.
+        max_tokens: isHeadCoach ? 4096 : 2048,
         system: buildSystemPrompt(context),
-        tools: OMEGA_TOOLS,
+        ...(isHeadCoach ? {} : { tools: OMEGA_TOOLS }),
         messages: conversation,
       });
 
@@ -115,6 +126,69 @@ Deno.serve(async (req) => {
         });
       }
       conversation.push({ role: 'user', content: toolResults });
+    }
+
+    // El Head Coach no tiene tools para registrar sus efectos — el JSON
+    // completo ES la respuesta, así que la persistencia (auditoría + misiones
+    // reales) pasa acá, server-side, en vez de en runTool.
+    if (isHeadCoach) {
+      // deno-lint-ignore no-explicit-any
+      let parsed: any;
+      try {
+        const cleaned = finalText.trim().replace(/^```(?:json)?\s*|\s*```$/g, '');
+        parsed = JSON.parse(cleaned);
+      } catch {
+        return new Response(JSON.stringify({ ok: false, error: 'Omega no devolvió un JSON válido.' }), {
+          status: 502,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const gameState = ['A', 'B', 'C'].includes(parsed.game_state) ? parsed.game_state : 'B';
+      const strengths = Array.isArray(parsed.strengths) ? parsed.strengths : [];
+      const weaknesses = Array.isArray(parsed.weaknesses) ? parsed.weaknesses : [];
+      const dailyMissions = Array.isArray(parsed.daily_missions) ? parsed.daily_missions : [];
+      const manualAudit = parsed.manual_audit ?? { issue_detected: '', suggested_rule: '' };
+      const auditDate = new Date().toISOString().slice(0, 10);
+
+      const normalized = {
+        game_state: gameState,
+        daily_feedback: String(parsed.daily_feedback ?? ''),
+        strengths,
+        weaknesses,
+        daily_missions: dailyMissions,
+        manual_audit: manualAudit,
+      };
+
+      const { error: upsertError } = await adminClient.from('omega_audits').upsert(
+        { user_id: user.id, audit_date: auditDate, ...normalized },
+        { onConflict: 'user_id,audit_date' },
+      );
+      if (upsertError) throw upsertError;
+
+      const { error: deleteError } = await adminClient
+        .from('ai_missions')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('audit_date', auditDate);
+      if (deleteError) throw deleteError;
+
+      if (dailyMissions.length > 0) {
+        const { error: insertError } = await adminClient.from('ai_missions').insert(
+          // deno-lint-ignore no-explicit-any
+          dailyMissions.map((mission: any) => ({
+            user_id: user.id,
+            title: String(mission.task ?? 'Misión de Omega'),
+            description: String(mission.task ?? ''),
+            reward_xp: Number(mission.xpReward) || 0,
+            frequency: 'unica',
+            audit_date: auditDate,
+          })),
+        );
+        if (insertError) throw insertError;
+      }
+
+      finalText = JSON.stringify(normalized);
     }
 
     return new Response(JSON.stringify({ ok: true, reply: finalText, effects }), {
@@ -202,6 +276,32 @@ async function runTool(
 
     if (name === 'trigger_ui_alert') {
       effects.uiAlerts.push({ message: input.message, severity: input.severity });
+      return { ok: true };
+    }
+
+    if (name === 'update_goal_progress') {
+      const { data: newPct, error } = await adminClient.rpc('apply_goal_progress_delta', {
+        p_user_id: userId,
+        p_goal_id: input.goal_id,
+        p_delta: input.delta,
+      });
+      if (error) throw error;
+      if (newPct === null || newPct === undefined) {
+        return { ok: false, error: 'Meta no encontrada o no es de tipo automática.' };
+      }
+
+      const goalText = context.automaticGoals?.find((goal) => goal.id === input.goal_id)?.text ?? input.goal_id;
+      const { error: insertError } = await adminClient.from('goal_progress_events').insert({
+        user_id: userId,
+        goal_id: input.goal_id,
+        goal_text: goalText,
+        delta: input.delta,
+        new_pct: newPct,
+        reason: input.reason,
+      });
+      if (insertError) throw insertError;
+
+      effects.goalUpdates.push({ goalId: input.goal_id, goalText, delta: input.delta, newPct, reason: input.reason });
       return { ok: true };
     }
 

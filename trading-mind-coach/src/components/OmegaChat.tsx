@@ -26,6 +26,13 @@ export function EffectsSummary({ effects }: { effects: OmegaEffects }) {
   effects.streakValidations.forEach((s, i) =>
     chips.push({ key: `streak-${i}`, label: `Racha validada (+${s.bonus_xp})`, kind: 'streak' }),
   );
+  effects.goalUpdates.forEach((g, i) =>
+    chips.push({
+      key: `goal-${i}`,
+      label: `Meta: ${g.goalText} ${g.delta > 0 ? '+' : ''}${g.delta}%`,
+      kind: g.delta >= 0 ? 'positive' : 'negative',
+    }),
+  );
 
   if (chips.length === 0) return null;
 

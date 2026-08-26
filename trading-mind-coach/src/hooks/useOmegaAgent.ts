@@ -3,19 +3,23 @@ import { useAuth } from '../contexts/AuthContext';
 import { readFunctionErrorMessage } from '../lib/functionsError';
 import { supabase } from '../lib/supabaseClient';
 import {
+  getFundingAccountsForJournalEntry,
   getJournalEntryByDate,
+  getLatestJournalEntryDate,
   getLatestSessionVerdict,
   getOperations,
   getTradingPlan,
   getVirtusDelta,
   getVirtusTotal,
   type AiSessionVerdict,
+  type FundingAccount,
   type JournalEntryFull,
   type OperationItem,
   type TradingPlan,
 } from '../lib/api';
 import { localIsoDate } from '../lib/calendar';
 import { computeDisciplineScore } from '../lib/disciplineScore';
+import { getEventsForDate, getWeeklyEconomicEvents, isWithinFetchedWeek, type EconomicEvent } from '../lib/economicCalendar';
 import { currentStage } from '../lib/virtus';
 
 export type OmegaMessage = { role: 'user' | 'assistant'; content: string };
@@ -28,11 +32,28 @@ export type OmegaEffects = {
   uiAlerts: { message: string; severity: 'info' | 'warning' | 'critical' }[];
   streakValidations: { description: string; bonus_xp: number }[];
   sessionVerdict: { ataraxia_score: number | null; verdict: string; went_well: string[]; went_wrong: string[] } | null;
+  goalUpdates: { goalId: string; goalText: string; delta: number; newPct: number; reason: string }[];
 };
 
-type OmegaRequestType = 'chat' | 'briefing_pre_sesion' | 'auditoria_post_sesion';
+type OmegaRequestType = 'chat' | 'briefing_pre_sesion' | 'auditoria_post_sesion' | 'auditoria_head_coach';
 
 type OmegaResponse = { ok: true; reply: string; effects: OmegaEffects } | { ok: false; error: string };
+
+export type HeadCoachAudit = {
+  game_state: 'A' | 'B' | 'C';
+  daily_feedback: string;
+  strengths: { behavior: string; hypothesis: string; fix: string }[];
+  weaknesses: { behavior: string; hypothesis: string; fix: string }[];
+  daily_missions: { id: number; task: string; xpReward: number }[];
+  manual_audit: { issue_detected: string; suggested_rule: string };
+};
+
+/** Quita cercas de markdown (```json ... ```) si el modelo las agregó a pesar de la instrucción de responder JSON puro. */
+function stripMarkdownFence(text: string): string {
+  const trimmed = text.trim();
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return fenced ? fenced[1].trim() : trimmed;
+}
 
 /**
  * Trae el journal + operaciones + plan de un día y calcula su Ataraxia real
@@ -56,6 +77,35 @@ async function getSessionData(
   });
 
   return { score, entry, operations, plan };
+}
+
+/**
+ * Candado de riesgo — cuentas de fondeo reales asociadas al journal auditado,
+ * con el % de distancia ya consumida hacia la quema (MISMA fórmula que el
+ * indicador rojo de `FundingAccountCard`) para que Omega no tenga que
+ * recalcular ni inventar ese número.
+ */
+async function getFundingRiskContext(journalEntryId: string | null): Promise<
+  { accountName: string; currentBalance: number; startingBalance: number; drawdownLimit: number; dailyLossLimit: number | null; dangerPct: number }[]
+> {
+  if (!journalEntryId) return [];
+  const accounts: FundingAccount[] = await getFundingAccountsForJournalEntry(journalEntryId);
+  return accounts.map((account) => ({
+    accountName: account.accountName,
+    currentBalance: account.currentBalance,
+    startingBalance: account.startingBalance,
+    drawdownLimit: account.drawdownLimit,
+    dailyLossLimit: account.dailyLossLimit,
+    dangerPct: Math.round(
+      Math.min(
+        100,
+        Math.max(
+          0,
+          ((account.startingBalance - account.currentBalance) / (account.startingBalance - account.drawdownLimit)) * 100,
+        ),
+      ),
+    ),
+  }));
 }
 
 /** El cruce journal + Manual Operativo que Omega recibe para evaluar una sesión completa. */
@@ -111,6 +161,7 @@ function buildBriefingDigest(
   plan: TradingPlan | null,
   virtusDelta7d: number,
   latestVerdict: AiSessionVerdict | null,
+  todayHighImpactEvents: EconomicEvent[] | null,
 ): string {
   const goalsLines = plan?.goals?.length ? plan.goals.map((g) => `- ${g.text}`).join('\n') : '(sin metas definidas)';
 
@@ -120,6 +171,17 @@ function buildBriefingDigest(
 - Se hizo mal: ${latestVerdict.went_wrong.join('; ') || '—'}`
     : 'Sin veredicto de sesión anterior guardado todavía.';
 
+  // null = fuera de la semana que cubre el feed (no hay dato real que mostrar,
+  // así que no se afirma "sin noticias" — sería fabricar un negativo).
+  const newsBlock =
+    todayHighImpactEvents === null
+      ? '(fuera del rango de fechas que cubre el calendario esta semana)'
+      : todayHighImpactEvents.length > 0
+        ? todayHighImpactEvents
+            .map((event) => `- ${new Date(event.date).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })} ${event.title} (${event.country})`)
+            .join('\n')
+        : '(ninguna reconocida para hoy)';
+
   return `BRIEFING PRE-SESIÓN — reglas del Manual Operativo para hoy:
 
 Horario operativo: ${plan?.schedule_start || '—'} a ${plan?.schedule_end || '—'}
@@ -127,6 +189,10 @@ Trades permitidos por sesión: ${plan?.max_trades_per_session || '(no definido)'
 Días sin operar: ${plan?.no_trade_days || '(no definidos)'}
 Gestión de riesgo: ${plan?.risk_management || '(no definida)'}
 Reglas psicológicas: ${plan?.psychological_rules || '(no definidas)'}
+Plan ante eventos macro: ${plan?.macro_event_plan || '(no definido)'}
+
+Noticias de alto impacto hoy (real, del calendario económico):
+${newsBlock}
 
 Metas del trader (para enfocar el día):
 ${goalsLines}
@@ -166,6 +232,7 @@ export function useOmegaAgent() {
         sessionDigest?: string;
         requestType?: OmegaRequestType;
         sessionDate?: string;
+        fundingAccounts?: Awaited<ReturnType<typeof getFundingRiskContext>>;
       },
     ) => {
       if (!user) return;
@@ -174,13 +241,16 @@ export function useOmegaAgent() {
       setError(null);
 
       try {
-        const virtusTotal = await getVirtusTotal(user.id);
+        const [virtusTotal, plan] = await Promise.all([getVirtusTotal(user.id), getTradingPlan(user.id)]);
         const stage = currentStage(virtusTotal);
+        const automaticGoals = (plan?.goals ?? [])
+          .filter((goal) => goal.type === 'automatic')
+          .map((goal) => ({ id: goal.id, text: goal.text, progressPct: goal.progressPct }));
 
         const { data, error: invokeError } = await supabase.functions.invoke('omega-coach', {
           body: {
             messages: nextMessages,
-            context: { virtusStage: stage.level, virtusTotal, ...contextExtra },
+            context: { virtusStage: stage.level, virtusTotal, automaticGoals, ...contextExtra },
           },
         });
 
@@ -241,11 +311,13 @@ export function useOmegaAgent() {
           return;
         }
         const digest = buildSessionDigest(targetDate, entry, operations, plan);
+        const fundingAccounts = await getFundingRiskContext(entry.id);
         await invokeOmega([...messages, { role: 'user', content: `Evalúa mi sesión del ${targetDate}.` }], {
           ataraxiaPct: score,
           sessionDigest: digest,
           requestType: 'auditoria_post_sesion',
           sessionDate: targetDate,
+          fundingAccounts,
         });
       } catch (err) {
         setError(err instanceof Error ? err.message : 'No se pudo evaluar la sesión.');
@@ -275,7 +347,21 @@ export function useOmegaAgent() {
         getVirtusDelta(user.id, 7),
         getLatestSessionVerdict(user.id),
       ]);
-      const digest = buildBriefingDigest(plan, virtusDelta7d, latestVerdict);
+
+      const today = localIsoDate(new Date());
+      let todayHighImpactEvents: EconomicEvent[] | null = null;
+      if (isWithinFetchedWeek(today)) {
+        try {
+          const weekEvents = await getWeeklyEconomicEvents();
+          todayHighImpactEvents = getEventsForDate(weekEvents, today).filter((event) => event.impact === 'High');
+        } catch {
+          // El calendario económico es un extra del briefing, no su núcleo —
+          // si falla, el briefing sigue sin esa parte en vez de romperse entero.
+          todayHighImpactEvents = null;
+        }
+      }
+
+      const digest = buildBriefingDigest(plan, virtusDelta7d, latestVerdict, todayHighImpactEvents);
       await invokeOmega([...messages, { role: 'user', content: 'Dame mi briefing pre-sesión de hoy.' }], {
         ataraxiaPct: null,
         sessionDigest: digest,
@@ -288,5 +374,70 @@ export function useOmegaAgent() {
     }
   }, [user, messages, sending, invokeOmega]);
 
-  return { messages, sending, error, lastEffects, uiAlerts, dismissAlert, sendMessage, evaluateSession, requestBriefing };
+  /**
+   * Auditoría "Head Coach" para OmegaDashboard — deliberadamente aislada del
+   * estado del chat flotante (no toca `messages`/`lastEffects`/`sending`):
+   * esta llamada exige que la ÚNICA respuesta sea un JSON puro
+   * (requestType 'auditoria_head_coach', sin tools disponibles del lado del
+   * servidor), así que mezclarla con la transcripción del chat mostraría un
+   * bloque de JSON crudo como si fuera una burbuja de conversación normal.
+   */
+  const requestHeadCoachAudit = useCallback(
+    async (): Promise<HeadCoachAudit> => {
+      if (!user) throw new Error('No autenticado.');
+
+      const latestDate = await getLatestJournalEntryDate(user.id);
+      if (!latestDate) throw new Error('No hay journals registrados todavía.');
+
+      const { score, entry, operations, plan } = await getSessionData(user.id, latestDate);
+      if (!entry) throw new Error('No hay journals registrados todavía.');
+
+      const sessionText = buildSessionDigest(latestDate, entry, operations, plan);
+      const [virtusTotal, fundingAccounts] = await Promise.all([
+        getVirtusTotal(user.id),
+        getFundingRiskContext(entry.id),
+      ]);
+      const stage = currentStage(virtusTotal);
+
+      const { data, error: invokeError } = await supabase.functions.invoke('omega-coach', {
+        body: {
+          messages: [{ role: 'user', content: sessionText }],
+          context: {
+            virtusStage: stage.level,
+            virtusTotal,
+            ataraxiaPct: score,
+            requestType: 'auditoria_head_coach',
+            fundingAccounts,
+          },
+        },
+      });
+
+      if (invokeError) {
+        throw new Error(await readFunctionErrorMessage(invokeError, 'No se pudo contactar a Omega.'));
+      }
+
+      const result = data as OmegaResponse;
+      if (!result.ok) throw new Error(result.error);
+
+      try {
+        return JSON.parse(stripMarkdownFence(result.reply)) as HeadCoachAudit;
+      } catch {
+        throw new Error('Omega no devolvió un JSON válido.');
+      }
+    },
+    [user],
+  );
+
+  return {
+    messages,
+    sending,
+    error,
+    lastEffects,
+    uiAlerts,
+    dismissAlert,
+    sendMessage,
+    evaluateSession,
+    requestBriefing,
+    requestHeadCoachAudit,
+  };
 }

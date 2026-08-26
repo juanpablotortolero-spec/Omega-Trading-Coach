@@ -17,6 +17,7 @@ import OmegaMark from './OmegaMark';
 
 const navItems = [
   { label: 'Inicio', path: '/dashboard' },
+  { label: 'Omega Coach', path: '/omega-coach' },
   { label: 'Nuevo journal', path: '/journal/nuevo' },
   { label: 'Historial', path: '/historial' },
   { label: 'Estadísticas', path: '/estadisticas' },

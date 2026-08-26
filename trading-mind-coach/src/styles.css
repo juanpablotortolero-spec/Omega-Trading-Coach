@@ -2250,6 +2250,275 @@ textarea {
   background: linear-gradient(90deg, var(--accent-bronze), var(--accent-gold));
 }
 
+.gauge-fill.danger {
+  background: linear-gradient(90deg, var(--accent-gold), var(--trade-bearish));
+}
+
+.funding-header-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.funding-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.funding-accounts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 20px;
+}
+
+.funding-account-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.funding-account-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.funding-account-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.funding-account-title-row h3 {
+  margin: 0;
+}
+
+.funding-account-subheader {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: -8px;
+}
+
+.funding-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+}
+
+.funding-chip.type {
+  border-color: rgba(201, 166, 107, 0.4);
+  color: var(--accent-gold);
+  background: rgba(201, 166, 107, 0.1);
+}
+
+.funding-chip.dll {
+  border-color: rgba(74, 107, 130, 0.4);
+  color: var(--accent-sapphire);
+  background: rgba(74, 107, 130, 0.12);
+}
+
+.funding-chip.status.active {
+  border-color: rgba(82, 121, 111, 0.4);
+  color: var(--trade-bullish);
+  background: rgba(82, 121, 111, 0.14);
+}
+
+.funding-chip.status.breached {
+  border-color: rgba(139, 58, 54, 0.4);
+  color: var(--trade-bearish);
+  background: rgba(139, 58, 54, 0.14);
+}
+
+.funding-chip.status.passed {
+  border-color: rgba(201, 166, 107, 0.4);
+  color: var(--accent-gold);
+  background: rgba(201, 166, 107, 0.14);
+}
+
+.funding-chip.status.inactive {
+  border-color: var(--border-subtle);
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.funding-data-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.funding-data-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.funding-data-block strong {
+  font-family: 'Cinzel', serif;
+  font-size: 1.15rem;
+  color: var(--accent-gold);
+}
+
+.funding-slider {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.funding-slider-track {
+  position: relative;
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(139, 58, 54, 0.35), rgba(82, 121, 111, 0.35));
+  overflow: visible;
+}
+
+.funding-slider-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  height: 100%;
+  border-radius: 999px 0 0 999px;
+  background: rgba(139, 58, 54, 0.55);
+}
+
+.funding-slider-start-mark {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  background: var(--text-primary);
+  transform: translateX(-1px);
+}
+
+.funding-slider-current-dot {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent-gold);
+  border: 2px solid var(--bg-surface);
+  box-shadow: 0 0 8px rgba(201, 166, 107, 0.7);
+  transform: translate(-50%, -50%);
+}
+
+.funding-slider-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+
+.funding-slider-label.mll {
+  color: var(--trade-bearish);
+}
+
+.funding-slider-label.target {
+  color: var(--trade-bullish);
+}
+
+.funding-balance-edit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.funding-balance-edit input {
+  flex: 1;
+  min-width: 0;
+}
+
+.funding-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+  gap: 12px;
+  text-align: center;
+}
+
+.funding-summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.funding-summary-item strong {
+  font-family: 'Cinzel', serif;
+  font-size: 1.3rem;
+  color: var(--accent-gold);
+}
+
+.funding-payout-form {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 12px 0;
+}
+
+.funding-payout-form input,
+.funding-payout-form select {
+  flex: 1;
+  min-width: 120px;
+}
+
+.funding-payout-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.funding-account-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.funding-account-check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.funding-account-check-row input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent-gold);
+}
+
+.funding-payout-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  font-size: 0.85rem;
+}
+
 .mission-row-header {
   display: flex;
   justify-content: space-between;
@@ -5212,6 +5481,267 @@ textarea {
   display: flex;
   gap: 8px;
   align-items: center;
+}
+
+.omega-hq {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.omega-hq-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.omega-hq-header h2 {
+  margin: 0 0 4px;
+}
+
+.omega-hq-header-copy {
+  flex: 1;
+}
+
+.omega-hq-audit-btn {
+  flex-shrink: 0;
+}
+
+.briefing-presesion {
+  margin-bottom: 20px;
+}
+
+.omega-hq-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 22px;
+  align-items: stretch;
+}
+
+.omega-hq-col {
+  min-height: 320px;
+}
+
+.omega-hq-col h3 {
+  margin-top: 0;
+}
+
+@media (max-width: 1120px) {
+  .omega-hq-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.omega-hq-col-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.omega-feedback-box {
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--accent-gold);
+  border-radius: 10px;
+  padding: 16px 18px;
+}
+
+.omega-feedback-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.omega-feedback-text {
+  margin: 0;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  font-size: 0.88rem;
+  line-height: 1.7;
+  color: var(--text-primary);
+}
+
+.omega-psycho-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+@media (max-width: 640px) {
+  .omega-psycho-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.psycho-card {
+  border-radius: 10px;
+  padding: 14px 16px;
+  border: 1px solid transparent;
+}
+
+.psycho-card.strength {
+  background: rgba(82, 121, 111, 0.12);
+  border-color: rgba(82, 121, 111, 0.35);
+}
+
+.psycho-card.leak {
+  background: rgba(139, 58, 54, 0.14);
+  border-color: rgba(139, 58, 54, 0.4);
+}
+
+.psycho-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.psycho-card-header h4 {
+  margin: 0;
+  font-size: 0.92rem;
+}
+
+.psycho-card-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.psycho-card.strength .psycho-card-dot {
+  background: var(--trade-bullish);
+  box-shadow: 0 0 6px rgba(82, 121, 111, 0.7);
+}
+
+.psycho-card.leak .psycho-card-dot {
+  background: var(--trade-bearish);
+  box-shadow: 0 0 6px rgba(139, 58, 54, 0.7);
+}
+
+.psycho-card-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.psycho-card.strength .psycho-card-list li::marker {
+  color: var(--trade-bullish);
+}
+
+.psycho-card.leak .psycho-card-list li::marker {
+  color: var(--trade-bearish);
+}
+
+.omega-hq-col-status {
+  display: flex;
+  flex-direction: column;
+}
+
+.tendler-meter {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 24px 0;
+  margin: auto 0;
+}
+
+.tendler-meter-ring {
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  border: 4px solid var(--meter-color);
+  background: rgba(255, 255, 255, 0.02);
+  box-shadow: 0 0 30px var(--meter-glow), inset 0 0 22px var(--meter-glow);
+}
+
+.tendler-meter-letter {
+  font-family: 'Cinzel', serif;
+  font-size: 3.2rem;
+  font-weight: 700;
+  color: var(--meter-color);
+}
+
+.tendler-meter-caption {
+  margin: 4px 0 0;
+  font-weight: 600;
+  text-align: center;
+}
+
+.tendler-meter-sublabel {
+  text-align: center;
+  max-width: 220px;
+}
+
+.omega-hq-col-missions {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.daily-missions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.daily-mission-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.daily-mission-label {
+  font-size: 0.88rem;
+}
+
+.daily-mission-xp {
+  flex-shrink: 0;
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--accent-gold);
+  background: rgba(201, 166, 107, 0.12);
+  border: 1px solid rgba(201, 166, 107, 0.35);
+  border-radius: 999px;
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+
+.manual-audit-alert {
+  background: rgba(201, 166, 107, 0.08);
+  border: 1px solid rgba(201, 166, 107, 0.3);
+  border-left: 3px solid var(--accent-gold);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+
+.manual-audit-alert-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.manual-audit-alert-icon {
+  color: var(--accent-gold);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.manual-audit-alert-text {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--text-muted);
 }
 
 .info-current-chip {

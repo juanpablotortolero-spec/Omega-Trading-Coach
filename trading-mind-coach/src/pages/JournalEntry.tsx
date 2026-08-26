@@ -14,7 +14,9 @@ import {
   getAllOperations,
   getDisciplineInputsByDate,
   getFriends,
+  getFundingAccounts,
   getJournalEntryByDate,
+  getJournalFundingAccountIds,
   getJournalTemplate,
   getMyAgoras,
   getOperations,
@@ -27,6 +29,7 @@ import {
   postMarketQuizQuestions,
   psychologyEmotions,
   removeScreenshot,
+  replaceJournalFundingAccounts,
   replaceOperations,
   replaceVirtusEvents,
   shareJournalEntry,
@@ -37,6 +40,7 @@ import {
   type Direction,
   type ExecutionWindow,
   type Friend,
+  type FundingAccount,
   type JournalEntryFull,
   type JournalTemplateSections,
   type OperationItem,
@@ -151,6 +155,8 @@ function JournalEntry() {
   const [showSealedSummary, setShowSealedSummary] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
   const [auditingSession, setAuditingSession] = useState(false);
+  const [fundingAccounts, setFundingAccounts] = useState<FundingAccount[]>([]);
+  const [selectedFundingAccountIds, setSelectedFundingAccountIds] = useState<string[]>([]);
   const dropZoneRef = useRef<HTMLDivElement>(null);
   const { evaluateSession, sending: omegaSending, lastEffects: omegaLastEffects, error: omegaError } = useOmega();
 
@@ -185,6 +191,7 @@ function JournalEntry() {
           vTotal,
           disciplineInputs,
           allOps,
+          fundingAccountsList,
         ] = await Promise.all([
           getJournalEntryByDate(user.id, targetDate),
           getTradingPlan(user.id),
@@ -196,6 +203,7 @@ function JournalEntry() {
           getVirtusTotal(user.id),
           getDisciplineInputsByDate(user.id),
           getAllOperations(user.id),
+          getFundingAccounts(user.id),
         ]);
 
         if (cancelled) return;
@@ -208,6 +216,7 @@ function JournalEntry() {
         setAgoras(agoraList);
         setAgoraOrder(agoraOrderList);
         setVirtusTotal(vTotal);
+        setFundingAccounts(fundingAccountsList.filter((account) => account.status === 'active'));
 
         // Sinergia Ataraxia × Virtus — solo sesiones ANTERIORES a hoy cuentan
         // para el chequeo de racha (hoy mismo se evalúa en vivo más abajo).
@@ -226,9 +235,13 @@ function JournalEntry() {
         );
 
         if (resolvedEntry.id) {
-          const ops = await getOperations(resolvedEntry.id);
+          const [ops, linkedAccountIds] = await Promise.all([
+            getOperations(resolvedEntry.id),
+            getJournalFundingAccountIds(resolvedEntry.id),
+          ]);
           if (cancelled) return;
           setOperations(ops);
+          setSelectedFundingAccountIds(linkedAccountIds);
           // Older entries saved before the Fase 2 gate existed have operations
           // but no explicit answer — infer it so the gate reflects real data.
           if (resolvedEntry.custom_fields.took_trade === null && ops.length > 0) {
@@ -236,6 +249,7 @@ function JournalEntry() {
           }
         } else {
           setOperations([]);
+          setSelectedFundingAccountIds([]);
         }
 
         setEntry(resolvedEntry);
@@ -326,6 +340,12 @@ function JournalEntry() {
 
   const updateOperation = (id: string, patch: Partial<OperationItem>) => {
     setOperations((current) => current.map((op) => (op.id === id ? { ...op, ...patch } : op)));
+  };
+
+  const toggleFundingAccount = (accountId: string) => {
+    setSelectedFundingAccountIds((current) =>
+      current.includes(accountId) ? current.filter((id) => id !== accountId) : [...current, accountId],
+    );
   };
 
   const handleFiles = async (files: FileList | File[]) => {
@@ -487,6 +507,7 @@ function JournalEntry() {
       };
       const entryId = await upsertJournalEntryFull(user.id, entryToSave);
       await replaceOperations(user.id, entryId, entry.entry_date, operations);
+      await replaceJournalFundingAccounts(user.id, entryId, selectedFundingAccountIds);
       setEntry((current) => ({ ...current, id: entryId, custom_fields: entryToSave.custom_fields }));
       setSavedAt(Date.now());
       bump();
@@ -1065,6 +1086,35 @@ function JournalEntry() {
             </div>
           </div>
         </section>
+
+        {entry.custom_fields.took_trade === true && (
+        <section className="panel plan-section je-section">
+          <div className="section-header">
+            <h3>Cuentas de Fondeo</h3>
+            <span className="hint-text">¿en cuál(es) se ejecutó esta sesión?</span>
+          </div>
+          {fundingAccounts.length === 0 ? (
+            <p className="hint-text">
+              No tenés cuentas activas registradas. Agrega una en{' '}
+              <Link to="/conexiones">Conexiones</Link> para poder asociarla a tus sesiones.
+            </p>
+          ) : (
+            <div className="funding-account-checklist">
+              {fundingAccounts.map((account) => (
+                <label key={account.id} className="funding-account-check-row">
+                  <input
+                    type="checkbox"
+                    checked={selectedFundingAccountIds.includes(account.id)}
+                    onChange={() => toggleFundingAccount(account.id)}
+                  />
+                  <span>{account.accountName}</span>
+                  {account.accountNumber && <span className="hint-text">#{account.accountNumber}</span>}
+                </label>
+              ))}
+            </div>
+          )}
+        </section>
+        )}
 
         {entry.custom_fields.took_trade === true && (
         <section className="panel plan-section je-section">

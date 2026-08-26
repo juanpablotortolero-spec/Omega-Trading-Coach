@@ -1,186 +1,110 @@
-import { useEffect, useRef, useState, type ChangeEvent, type DragEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import FundingAccountCard from '../components/FundingAccountCard';
+import FundingHistoryModal from '../components/FundingHistoryModal';
 import { useAuth } from '../contexts/AuthContext';
-import { ensureJournalEntryForDate, insertSyncedOperations, type SyncedTradeInput } from '../lib/api';
-import { localIsoDate } from '../lib/calendar';
-import { parseCsvFile, parsePastedTable, type SyncPlatform } from '../lib/csvSync';
-import { hasTradovateConnection, syncTradovateTrades } from '../lib/tradovateApi';
-import TradovateConnectModal from '../components/TradovateConnectModal';
+import {
+  createFundingAccount,
+  deleteFundingAccount,
+  getFundingAccounts,
+  updateFundingAccountBalance,
+  type FundingAccount,
+  type FundingAccountType,
+  type FundingDrawdownType,
+} from '../lib/api';
 
-const platformTags: { id: SyncPlatform; label: string }[] = [
-  { id: 'tradovate', label: 'Tradovate' },
-  { id: 'ninjatrader', label: 'NinjaTrader' },
-  { id: 'tradingview', label: 'TradingView' },
-  { id: 'lucid', label: 'Lucid Trading' },
-];
-
-type DaySummary = { date: string; imported: number };
-
-type ImportSummary = {
-  sourceLabel: string;
-  accountLabel: string | null;
-  totalParsed: number;
-  totalImported: number;
-  totalDuplicate: number;
-  totalSkippedNoDate: number;
-  totalSkippedByParser: number;
-  days: DaySummary[];
-};
-
-function groupTradesByDate(trades: SyncedTradeInput[]): { byDate: Map<string, SyncedTradeInput[]>; skippedNoDate: number } {
-  const byDate = new Map<string, SyncedTradeInput[]>();
-  let skippedNoDate = 0;
-
-  for (const trade of trades) {
-    const reference = trade.entryTime ?? trade.exitTime;
-    if (!reference) {
-      skippedNoDate += 1;
-      continue;
-    }
-    const date = localIsoDate(new Date(reference));
-    const list = byDate.get(date) ?? [];
-    list.push(trade);
-    byDate.set(date, list);
-  }
-
-  return { byDate, skippedNoDate };
-}
+const accountTypeOptions: FundingAccountType[] = ['EVAL', 'PA'];
+const drawdownTypeOptions: FundingDrawdownType[] = ['EOD', 'TRAILING', 'DAILY'];
 
 function Conexiones() {
   const { user } = useAuth();
 
-  const [accountLabel, setAccountLabel] = useState('');
-
-  const [dragActive, setDragActive] = useState(false);
-  const [processing, setProcessing] = useState(false);
+  const [accounts, setAccounts] = useState<FundingAccount[]>([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [summary, setSummary] = useState<ImportSummary | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
-  const [pastedTable, setPastedTable] = useState('');
-  const [pasting, setPasting] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
+  const [accountName, setAccountName] = useState('');
+  const [accountNumber, setAccountNumber] = useState('');
+  const [accountType, setAccountType] = useState<FundingAccountType>('PA');
+  const [drawdownType, setDrawdownType] = useState<FundingDrawdownType>('EOD');
+  const [startingBalance, setStartingBalance] = useState('');
+  const [profitTarget, setProfitTarget] = useState('');
+  const [drawdownLimit, setDrawdownLimit] = useState('');
+  const [dailyLossLimit, setDailyLossLimit] = useState('');
+  const [creating, setCreating] = useState(false);
 
-  const [tradovateModalOpen, setTradovateModalOpen] = useState(false);
-  const [tradovateConnected, setTradovateConnected] = useState(false);
-  const [syncing, setSyncing] = useState(false);
+  const loadAccounts = () => {
+    if (!user) return;
+    getFundingAccounts(user.id)
+      .then(setAccounts)
+      .catch((err) => setError(err instanceof Error ? err.message : 'No se pudieron cargar las cuentas.'))
+      .finally(() => setLoading(false));
+  };
 
   useEffect(() => {
-    hasTradovateConnection()
-      .then(setTradovateConnected)
-      .catch(() => setTradovateConnected(false));
-  }, []);
+    loadAccounts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
-  const importTrades = async (
-    trades: SyncedTradeInput[],
-    sourceLabel: string,
-    skippedByParser: number,
-  ): Promise<void> => {
-    if (!user) return;
-
-    const trimmedAccountLabel = accountLabel.trim() || null;
-    const { byDate, skippedNoDate } = groupTradesByDate(trades);
-    const days: DaySummary[] = [];
-    let totalImported = 0;
-    let totalDuplicate = 0;
-
-    for (const [date, dayTrades] of byDate) {
-      const journalEntryId = await ensureJournalEntryForDate(user.id, date);
-      const imported = await insertSyncedOperations(
-        user.id,
-        journalEntryId,
-        date,
-        dayTrades,
-        sourceLabel,
-        trimmedAccountLabel,
-      );
-      totalImported += imported;
-      totalDuplicate += dayTrades.length - imported;
-      days.push({ date, imported });
-    }
-
-    days.sort((a, b) => (a.date < b.date ? -1 : 1));
-
-    setSummary({
-      sourceLabel,
-      accountLabel: trimmedAccountLabel,
-      totalParsed: trades.length,
-      totalImported,
-      totalDuplicate,
-      totalSkippedNoDate: skippedNoDate,
-      totalSkippedByParser: skippedByParser,
-      days,
-    });
+  const resetForm = () => {
+    setAccountName('');
+    setAccountNumber('');
+    setAccountType('PA');
+    setDrawdownType('EOD');
+    setStartingBalance('');
+    setProfitTarget('');
+    setDrawdownLimit('');
+    setDailyLossLimit('');
   };
 
-  const handleFile = async (file: File) => {
+  const handleCreate = async () => {
     if (!user) return;
-    setProcessing(true);
-    setError(null);
-    setSummary(null);
+    const starting = Number(startingBalance);
+    const target = Number(profitTarget);
+    const drawdown = Number(drawdownLimit);
+    const dll = dailyLossLimit.trim() ? Number(dailyLossLimit) : null;
+    if (!accountName.trim() || !Number.isFinite(starting) || !Number.isFinite(target) || !Number.isFinite(drawdown)) {
+      setError('Completa todos los campos con valores válidos.');
+      return;
+    }
 
+    setCreating(true);
+    setError(null);
     try {
-      const result = await parseCsvFile(file);
-      if (!result.ok) {
-        setError(result.error);
-        return;
-      }
-      await importTrades(result.trades, result.platformLabel, result.skipped);
+      const account = await createFundingAccount(user.id, {
+        accountName: accountName.trim(),
+        accountType,
+        accountNumber: accountNumber.trim() || null,
+        drawdownType,
+        startingBalance: starting,
+        profitTarget: target,
+        drawdownLimit: drawdown,
+        dailyLossLimit: dll,
+      });
+      setAccounts((current) => [account, ...current]);
+      resetForm();
+      setFormOpen(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo importar el archivo.');
+      setError(err instanceof Error ? err.message : 'No se pudo crear la cuenta.');
     } finally {
-      setProcessing(false);
+      setCreating(false);
     }
   };
 
-  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    setDragActive(false);
-    const file = event.dataTransfer.files?.[0];
-    if (file) handleFile(file);
+  const handleUpdateBalance = async (accountId: string, newBalance: number) => {
+    await updateFundingAccountBalance(accountId, newBalance);
+    setAccounts((current) =>
+      current.map((account) => (account.id === accountId ? { ...account, currentBalance: newBalance } : account)),
+    );
   };
 
-  const handleFileInput = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) handleFile(file);
-    event.target.value = '';
-  };
-
-  const handlePasteImport = async () => {
-    if (!user) return;
-    setPasting(true);
-    setError(null);
-    setSummary(null);
-
+  const handleDelete = async (accountId: string) => {
     try {
-      const result = parsePastedTable(pastedTable);
-      if (!result.ok) {
-        setError(result.error);
-        return;
-      }
-      await importTrades(result.trades, result.platformLabel, result.skipped);
-      setPastedTable('');
+      await deleteFundingAccount(accountId);
+      setAccounts((current) => current.filter((account) => account.id !== accountId));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo importar la tabla pegada.');
-    } finally {
-      setPasting(false);
-    }
-  };
-
-  const handleSyncTradovate = async () => {
-    setSyncing(true);
-    setError(null);
-    setSummary(null);
-    try {
-      const result = await syncTradovateTrades();
-      if (!result.ok) {
-        setError(result.error);
-        return;
-      }
-      await importTrades(result.trades, 'Tradovate API', 0);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo sincronizar con Tradovate.');
-    } finally {
-      setSyncing(false);
+      setError(err instanceof Error ? err.message : 'No se pudo eliminar la cuenta.');
     }
   };
 
@@ -188,137 +112,148 @@ function Conexiones() {
     <>
       <header className="topbar panel">
         <div>
-          <p className="eyebrow">Fase 2 · Trade Sync</p>
-          <h2>Conexiones institucionales</h2>
+          <p className="eyebrow">Gestión de capital</p>
+          <h2>Gestor de Cuentas de Fondeo</h2>
           <p className="page-description">
-            Sube el reporte CSV de tu bróker o plataforma, pega una tabla, o conecta tu cuenta para que tus
-            operaciones se registren automáticamente en el journal del día correspondiente.
+            Lleva el registro de tus cuentas activas — balance, meta de profit y límite de drawdown, todo en un
+            solo lugar.
           </p>
         </div>
-        <button type="button" className="ghost-btn sync-master-btn" onClick={handleSyncTradovate} disabled={syncing}>
-          {syncing ? 'Sincronizando…' : '⟳ Sincronizar datos'}
-        </button>
-      </header>
-
-      <section className="panel plan-section">
-        <label className="auth-field account-label-field">
-          <span className="eyebrow">Cuenta (opcional)</span>
-          <input
-            type="text"
-            value={accountLabel}
-            onChange={(event) => setAccountLabel(event.target.value)}
-            placeholder="Ej. Lucid 50K #1"
-          />
-          <span className="hint-text">
-            Etiqueta cada importación con la cuenta de origen — así conservas tu historial separado por cuenta
-            aunque una se queme y abras otra.
-          </span>
-        </label>
-
-        <div
-          className={`csv-dropzone ${dragActive ? 'drag-active' : ''}`}
-          onDragOver={(event) => {
-            event.preventDefault();
-            setDragActive(true);
-          }}
-          onDragLeave={() => setDragActive(false)}
-          onDrop={handleDrop}
-        >
-          <span className="csv-dropzone-icon">⇩</span>
-          <p className="csv-dropzone-title">
-            {processing ? 'Procesando…' : 'Arrastra tu reporte CSV aquí'}
-          </p>
-          <label className="ghost-btn btn-sm csv-dropzone-label">
-            o selecciona un archivo
-            <input ref={fileInputRef} type="file" accept=".csv" onChange={handleFileInput} disabled={processing} hidden />
-          </label>
-        </div>
-
-        <div className="platform-tag-row">
-          {platformTags.map((platform) =>
-            platform.id === 'tradovate' ? (
-              <button
-                key={platform.id}
-                type="button"
-                className={`platform-tag interactive ${tradovateConnected ? 'connected' : ''}`}
-                onClick={() => setTradovateModalOpen(true)}
-              >
-                {tradovateConnected && <span className="platform-tag-dot" />}
-                {platform.label}
-                {tradovateConnected ? ' · Conectado' : ' · Conectar'}
-              </button>
-            ) : (
-              <span key={platform.id} className="platform-tag">
-                {platform.label}
-              </span>
-            ),
-          )}
-        </div>
-
-        <div className="paste-table-section">
-          <div className="section-header">
-            <span className="eyebrow">¿Sin botón de exportar? Pega la tabla</span>
-          </div>
-          <p className="hint-text">
-            Para plataformas como Lucid Trading que no ofrecen descarga de CSV: selecciona y copia (Ctrl+C) las
-            filas de la tabla de operaciones directo del navegador, y pégalas aquí.
-          </p>
-          <textarea
-            className="paste-table-textarea"
-            value={pastedTable}
-            onChange={(event) => setPastedTable(event.target.value)}
-            placeholder="Pega aquí el contenido copiado de la tabla…"
-            rows={4}
-          />
-          <button
-            type="button"
-            className="ghost-btn btn-sm"
-            onClick={handlePasteImport}
-            disabled={pasting || !pastedTable.trim()}
-          >
-            {pasting ? 'Procesando…' : 'Importar tabla pegada'}
+        <div className="funding-header-actions">
+          <button type="button" className="ghost-btn btn-sm" onClick={() => setHistoryOpen(true)}>
+            Historial
+          </button>
+          <button type="button" className="primary-btn btn-sm" onClick={() => setFormOpen((open) => !open)}>
+            {formOpen ? 'Cancelar' : '+ Añadir Nueva Cuenta'}
           </button>
         </div>
+      </header>
 
-        {error && <p className="hint-text">{error}</p>}
-
-        {summary && (
-          <div className="sync-summary">
-            <div className="repeatable-card-header">
-              <span>
-                Fuente: <strong>{summary.sourceLabel}</strong>
-                {summary.accountLabel && <> · Cuenta: <strong>{summary.accountLabel}</strong></>}
-              </span>
-              <span className="sync-badge">{summary.totalImported} operaciones importadas</span>
-            </div>
-            <p className="hint-text">
-              {summary.totalParsed} operaciones leídas
-              {summary.totalDuplicate > 0 ? ` · ${summary.totalDuplicate} ya estaban importadas` : ''}
-              {summary.totalSkippedNoDate > 0 ? ` · ${summary.totalSkippedNoDate} sin fecha reconocible` : ''}
-              {summary.totalSkippedByParser > 0 ? ` · ${summary.totalSkippedByParser} filas ilegibles` : ''}
-            </p>
-
-            {summary.days.length > 0 && (
-              <div className="sync-summary-list">
-                {summary.days.map((day) => (
-                  <Link key={day.date} to={`/journal/nuevo?date=${day.date}`} className="shared-entry-row">
-                    <span>
-                      {day.date} — {day.imported} {day.imported === 1 ? 'operación' : 'operaciones'}
-                    </span>
-                    <span>→</span>
-                  </Link>
+      {formOpen && (
+        <section className="panel plan-section funding-form">
+          <div className="field-grid-2">
+            <label className="auth-field">
+              <span className="eyebrow">Nombre de la cuenta</span>
+              <input
+                type="text"
+                value={accountName}
+                onChange={(event) => setAccountName(event.target.value)}
+                placeholder="Ej. LUCIDPRO 50K"
+              />
+            </label>
+            <label className="auth-field">
+              <span className="eyebrow">Número de cuenta (opcional)</span>
+              <input
+                type="text"
+                value={accountNumber}
+                onChange={(event) => setAccountNumber(event.target.value)}
+                placeholder="Ej. 123456"
+              />
+            </label>
+            <label className="auth-field">
+              <span className="eyebrow">Tipo de cuenta</span>
+              <div className="pill-row">
+                {accountTypeOptions.map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    className={`pill-btn gold small ${accountType === option ? 'active' : ''}`}
+                    onClick={() => setAccountType(option)}
+                  >
+                    {option}
+                  </button>
                 ))}
               </div>
-            )}
+            </label>
+            <label className="auth-field">
+              <span className="eyebrow">Tipo de límite</span>
+              <div className="pill-row">
+                {drawdownTypeOptions.map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    className={`pill-btn gold small ${drawdownType === option ? 'active' : ''}`}
+                    onClick={() => setDrawdownType(option)}
+                  >
+                    {option}
+                  </button>
+                ))}
+              </div>
+            </label>
+            <label className="auth-field">
+              <span className="eyebrow">Balance inicial</span>
+              <input
+                type="number"
+                value={startingBalance}
+                onChange={(event) => setStartingBalance(event.target.value)}
+                placeholder="50000"
+              />
+            </label>
+            <label className="auth-field">
+              <span className="eyebrow">Meta a alcanzar (Profit Target)</span>
+              <input
+                type="number"
+                value={profitTarget}
+                onChange={(event) => setProfitTarget(event.target.value)}
+                placeholder="53000"
+              />
+            </label>
+            <label className="auth-field">
+              <span className="eyebrow">Límite de pérdida (MLL)</span>
+              <input
+                type="number"
+                value={drawdownLimit}
+                onChange={(event) => setDrawdownLimit(event.target.value)}
+                placeholder="47000"
+              />
+            </label>
+            <label className="auth-field">
+              <span className="eyebrow">Daily Loss Limit (opcional)</span>
+              <input
+                type="number"
+                value={dailyLossLimit}
+                onChange={(event) => setDailyLossLimit(event.target.value)}
+                placeholder="1000"
+              />
+            </label>
           </div>
-        )}
-      </section>
+          <button type="button" className="primary-btn btn-sm" onClick={handleCreate} disabled={creating}>
+            {creating ? 'Creando…' : 'Crear cuenta'}
+          </button>
+        </section>
+      )}
 
-      <TradovateConnectModal
-        open={tradovateModalOpen}
-        onClose={() => setTradovateModalOpen(false)}
-        onConnected={() => setTradovateConnected(true)}
-      />
+      {error && <p className="hint-text">{error}</p>}
+
+      {loading ? (
+        <div className="skeleton skeleton-text" />
+      ) : accounts.length === 0 ? (
+        <div className="empty-state">
+          <span className="empty-icon" />
+          <h3>Aún no registras cuentas de fondeo</h3>
+          <p>Agrega tu primera cuenta para llevar el seguimiento de tu progreso hacia la meta.</p>
+        </div>
+      ) : (
+        <div className="funding-accounts-grid">
+          {accounts.map((account) => (
+            <FundingAccountCard
+              key={account.id}
+              account={account}
+              onUpdateBalance={(newBalance) => handleUpdateBalance(account.id, newBalance)}
+              onDelete={() => handleDelete(account.id)}
+            />
+          ))}
+        </div>
+      )}
+
+      {user && (
+        <FundingHistoryModal
+          open={historyOpen}
+          onClose={() => setHistoryOpen(false)}
+          userId={user.id}
+          accounts={accounts}
+        />
+      )}
     </>
   );
 }

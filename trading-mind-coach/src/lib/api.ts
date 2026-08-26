@@ -1796,9 +1796,59 @@ export async function getAiMissions(userId: string): Promise<AiMission[]> {
   return (data ?? []) as AiMission[];
 }
 
+/**
+ * Único camino para marcar una misión como completada — pasa por la función
+ * de Postgres `set_ai_mission_completed` (SECURITY DEFINER) en vez de un
+ * update directo, porque esa función es la que acredita el XP a
+ * `virtus_ai_events` la PRIMERA vez que se completa (flag `xp_awarded`,
+ * permanente) — un update directo no podría hacer eso sin abrirle esa tabla
+ * de escritura al cliente, que es justo lo que evitamos desde la Fase 1.
+ */
 export async function updateAiMissionCompleted(missionId: string, completed: boolean): Promise<void> {
-  const { error } = await supabase.from('ai_missions').update({ completed }).eq('id', missionId);
+  const { error } = await supabase.rpc('set_ai_mission_completed', {
+    p_mission_id: missionId,
+    p_completed: completed,
+  });
   if (error) throw error;
+}
+
+/** Fecha (YYYY-MM-DD) del journal más reciente del usuario, sellado o no. */
+export async function getLatestJournalEntryDate(userId: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('journal_entries')
+    .select('entry_date')
+    .eq('user_id', userId)
+    .order('entry_date', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data?.entry_date ?? null;
+}
+
+export type OmegaAuditRow = {
+  id: string;
+  audit_date: string;
+  game_state: 'A' | 'B' | 'C';
+  daily_feedback: string;
+  strengths: { behavior: string; hypothesis: string; fix: string }[];
+  weaknesses: { behavior: string; hypothesis: string; fix: string }[];
+  daily_missions: { id: number; task: string; xpReward: number }[];
+  manual_audit: { issue_detected: string; suggested_rule: string };
+  created_at: string;
+};
+
+/** Auditoría del Head Coach ya guardada para hoy, si existe (una por día — ver unique(user_id, audit_date)). */
+export async function getTodayOmegaAudit(userId: string, todayIso: string): Promise<OmegaAuditRow | null> {
+  const { data, error } = await supabase
+    .from('omega_audits')
+    .select('id, audit_date, game_state, daily_feedback, strengths, weaknesses, daily_missions, manual_audit, created_at')
+    .eq('user_id', userId)
+    .eq('audit_date', todayIso)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data as OmegaAuditRow | null;
 }
 
 export type AiSessionVerdict = {
@@ -1822,6 +1872,33 @@ export async function getLatestSessionVerdict(userId: string): Promise<AiSession
 
   if (error) throw error;
   return data as AiSessionVerdict | null;
+}
+
+/**
+ * Última razón que Omega dio para cada meta automática que ajustó — trae las
+ * filas recientes y se queda con la más nueva por goal_id (reducido en
+ * cliente; el volumen por trader es bajo, no amerita una función de Postgres
+ * solo para esto).
+ */
+export async function getLatestGoalProgressReasons(
+  userId: string,
+): Promise<Map<string, { reason: string; delta: number; createdAt: string }>> {
+  const { data, error } = await supabase
+    .from('goal_progress_events')
+    .select('goal_id, reason, delta, created_at')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(50);
+
+  if (error) throw error;
+
+  const byGoal = new Map<string, { reason: string; delta: number; createdAt: string }>();
+  (data ?? []).forEach((row) => {
+    if (!byGoal.has(row.goal_id)) {
+      byGoal.set(row.goal_id, { reason: row.reason, delta: row.delta, createdAt: row.created_at });
+    }
+  });
+  return byGoal;
 }
 
 /**
@@ -2264,4 +2341,247 @@ export async function addEntryFeedback(journalEntryId: string, authorId: string,
     .insert({ journal_entry_id: journalEntryId, author_id: authorId, message });
 
   if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Gestor de Cuentas de Fondeo — Conexiones
+// ---------------------------------------------------------------------------
+
+export type FundingAccountType = 'EVAL' | 'PA';
+export type FundingAccountStatus = 'active' | 'breached' | 'passed' | 'inactive';
+export type FundingDrawdownType = 'EOD' | 'TRAILING' | 'DAILY';
+
+export type FundingAccount = {
+  id: string;
+  accountName: string;
+  accountType: FundingAccountType;
+  accountNumber: string | null;
+  status: FundingAccountStatus;
+  drawdownType: FundingDrawdownType;
+  startingBalance: number;
+  currentBalance: number;
+  profitTarget: number;
+  drawdownLimit: number;
+  dailyLossLimit: number | null;
+  tradingDays: number;
+  createdAt: string;
+};
+
+const FUNDING_ACCOUNT_COLUMNS =
+  'id, account_name, account_type, account_number, status, drawdown_type, starting_balance, current_balance, profit_target, drawdown_limit, daily_loss_limit, created_at';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapFundingAccountRow(row: any, tradingDays: number): FundingAccount {
+  return {
+    id: row.id,
+    accountName: row.account_name,
+    accountType: row.account_type,
+    accountNumber: row.account_number,
+    status: row.status,
+    drawdownType: row.drawdown_type,
+    startingBalance: row.starting_balance,
+    currentBalance: row.current_balance,
+    profitTarget: row.profit_target,
+    drawdownLimit: row.drawdown_limit,
+    dailyLossLimit: row.daily_loss_limit,
+    tradingDays,
+    createdAt: row.created_at,
+  };
+}
+
+/**
+ * Trading Days no es una columna — se cuenta en vivo desde
+ * journal_funding_accounts + journal_entries (días de journal distintos
+ * asociados a cada cuenta), para que nunca se desincronice de la realidad.
+ */
+export async function getFundingAccounts(userId: string): Promise<FundingAccount[]> {
+  const [{ data, error }, { data: links, error: linksError }] = await Promise.all([
+    supabase.from('funding_accounts').select(FUNDING_ACCOUNT_COLUMNS).eq('user_id', userId).order('created_at', { ascending: false }),
+    supabase
+      .from('journal_funding_accounts')
+      .select('funding_account_id, journal_entries(entry_date)')
+      .eq('user_id', userId),
+  ]);
+
+  if (error) throw error;
+  if (linksError) throw linksError;
+
+  const datesByAccount = new Map<string, Set<string>>();
+  (links ?? []).forEach((link) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const entryDate = (link as any).journal_entries?.entry_date;
+    if (!entryDate) return;
+    const set = datesByAccount.get(link.funding_account_id) ?? new Set<string>();
+    set.add(entryDate);
+    datesByAccount.set(link.funding_account_id, set);
+  });
+
+  return (data ?? []).map((row) => mapFundingAccountRow(row, datesByAccount.get(row.id)?.size ?? 0));
+}
+
+export async function createFundingAccount(
+  userId: string,
+  input: {
+    accountName: string;
+    accountType: FundingAccountType;
+    accountNumber: string | null;
+    drawdownType: FundingDrawdownType;
+    startingBalance: number;
+    profitTarget: number;
+    drawdownLimit: number;
+    dailyLossLimit: number | null;
+  },
+): Promise<FundingAccount> {
+  const { data, error } = await supabase
+    .from('funding_accounts')
+    .insert({
+      user_id: userId,
+      account_name: input.accountName,
+      account_type: input.accountType,
+      account_number: input.accountNumber,
+      drawdown_type: input.drawdownType,
+      starting_balance: input.startingBalance,
+      current_balance: input.startingBalance,
+      profit_target: input.profitTarget,
+      drawdown_limit: input.drawdownLimit,
+      daily_loss_limit: input.dailyLossLimit,
+    })
+    .select(FUNDING_ACCOUNT_COLUMNS)
+    .single();
+
+  if (error) throw error;
+  return mapFundingAccountRow(data, 0);
+}
+
+export async function updateFundingAccountBalance(accountId: string, newBalance: number): Promise<void> {
+  const { error } = await supabase
+    .from('funding_accounts')
+    .update({ current_balance: newBalance, updated_at: new Date().toISOString() })
+    .eq('id', accountId);
+
+  if (error) throw error;
+}
+
+export async function updateFundingAccountStatus(accountId: string, status: FundingAccountStatus): Promise<void> {
+  const { error } = await supabase
+    .from('funding_accounts')
+    .update({ status, updated_at: new Date().toISOString() })
+    .eq('id', accountId);
+
+  if (error) throw error;
+}
+
+export async function deleteFundingAccount(accountId: string): Promise<void> {
+  const { error } = await supabase.from('funding_accounts').delete().eq('id', accountId);
+  if (error) throw error;
+}
+
+export type FundingAccountsSummary = {
+  used: number;
+  passed: number;
+  breached: number;
+  active: number;
+  inactive: number;
+};
+
+export async function getFundingAccountsSummary(userId: string): Promise<FundingAccountsSummary> {
+  const { data, error } = await supabase.from('funding_accounts').select('status').eq('user_id', userId);
+  if (error) throw error;
+
+  const rows = data ?? [];
+  return {
+    used: rows.length,
+    passed: rows.filter((row) => row.status === 'passed').length,
+    breached: rows.filter((row) => row.status === 'breached').length,
+    active: rows.filter((row) => row.status === 'active').length,
+    inactive: rows.filter((row) => row.status === 'inactive').length,
+  };
+}
+
+export type FundingPayout = {
+  id: string;
+  accountId: string | null;
+  accountName: string | null;
+  amount: number;
+  payoutDate: string;
+  createdAt: string;
+};
+
+export async function getFundingPayouts(userId: string): Promise<FundingPayout[]> {
+  const { data, error } = await supabase
+    .from('funding_payouts')
+    .select('id, funding_account_id, amount, payout_date, created_at, funding_accounts(account_name)')
+    .eq('user_id', userId)
+    .order('payout_date', { ascending: false });
+
+  if (error) throw error;
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    accountId: row.funding_account_id,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    accountName: (row as any).funding_accounts?.account_name ?? null,
+    amount: row.amount,
+    payoutDate: row.payout_date,
+    createdAt: row.created_at,
+  }));
+}
+
+export async function createFundingPayout(
+  userId: string,
+  input: { accountId: string | null; amount: number; payoutDate: string },
+): Promise<void> {
+  const { error } = await supabase.from('funding_payouts').insert({
+    user_id: userId,
+    funding_account_id: input.accountId,
+    amount: input.amount,
+    payout_date: input.payoutDate,
+  });
+  if (error) throw error;
+}
+
+/** Ids de las cuentas de fondeo ya asociadas a un journal (para precargar los checkboxes al reabrir la Fase 2). */
+export async function getJournalFundingAccountIds(journalEntryId: string): Promise<string[]> {
+  const { data, error } = await supabase
+    .from('journal_funding_accounts')
+    .select('funding_account_id')
+    .eq('journal_entry_id', journalEntryId);
+
+  if (error) throw error;
+  return (data ?? []).map((row) => row.funding_account_id);
+}
+
+/** Cuentas de fondeo reales asociadas a un journal — para el candado de riesgo de Omega. */
+export async function getFundingAccountsForJournalEntry(journalEntryId: string): Promise<FundingAccount[]> {
+  const { data, error } = await supabase
+    .from('journal_funding_accounts')
+    .select(`funding_accounts (${FUNDING_ACCOUNT_COLUMNS})`)
+    .eq('journal_entry_id', journalEntryId);
+
+  if (error) throw error;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (data ?? []).filter((row: any) => row.funding_accounts).map((row: any) => mapFundingAccountRow(row.funding_accounts, 0));
+}
+
+/** Reemplaza las cuentas asociadas a un journal — mismo patrón delete+insert que replaceOperations. */
+export async function replaceJournalFundingAccounts(
+  userId: string,
+  journalEntryId: string,
+  accountIds: string[],
+): Promise<void> {
+  const { error: deleteError } = await supabase
+    .from('journal_funding_accounts')
+    .delete()
+    .eq('journal_entry_id', journalEntryId);
+  if (deleteError) throw deleteError;
+
+  if (accountIds.length === 0) return;
+
+  const { error: insertError } = await supabase.from('journal_funding_accounts').insert(
+    accountIds.map((accountId) => ({
+      user_id: userId,
+      journal_entry_id: journalEntryId,
+      funding_account_id: accountId,
+    })),
+  );
+  if (insertError) throw insertError;
 }

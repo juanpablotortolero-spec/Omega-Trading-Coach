@@ -4,11 +4,13 @@ import MonthCalendar from './MonthCalendar';
 import VirtusIcon, { type VirtusLevel } from './VirtusIcon';
 import VirtusProgressBar from './VirtusProgressBar';
 import { useAuth } from '../contexts/AuthContext';
+import { useOmega } from '../contexts/OmegaContext';
 import { useRefresh } from '../contexts/RefreshContext';
 import {
   awardWeeklyMissions,
   getAiMissions,
   getAllOperations,
+  getLatestGoalProgressReasons,
   getCompletedWeeklyMissionKeys,
   getDisciplineInputsByDate,
   getFriends,
@@ -86,7 +88,7 @@ function LaurelBranch({ mirrored }: { mirrored?: boolean }) {
 
 function Dashboard() {
   const { user } = useAuth();
-  const { version } = useRefresh();
+  const { version, bump } = useRefresh();
   const navigate = useNavigate();
 
   const [loading, setLoading] = useState(true);
@@ -120,6 +122,10 @@ function Dashboard() {
   const [infoOpen, setInfoOpen] = useState(false);
   const [hasUnsealedReminder, setHasUnsealedReminder] = useState(false);
   const [aiMissions, setAiMissions] = useState<AiMission[]>([]);
+  const [goalReasons, setGoalReasons] = useState<Map<string, { reason: string; delta: number; createdAt: string }>>(
+    new Map(),
+  );
+  const { lastEffects: omegaLastEffects } = useOmega();
 
   const today = new Date();
   const todayIso = localIsoDate(today);
@@ -263,6 +269,26 @@ function Dashboard() {
       cancelled = true;
     };
   }, [user, version]);
+
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+
+    getLatestGoalProgressReasons(user.id).then((map) => {
+      if (!cancelled) setGoalReasons(map);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user, version]);
+
+  useEffect(() => {
+    if (omegaLastEffects && omegaLastEffects.goalUpdates.length > 0) {
+      bump();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [omegaLastEffects]);
 
   const toggleAiMission = async (mission: AiMission) => {
     const nextCompleted = !mission.completed;
@@ -478,7 +504,11 @@ function Dashboard() {
                     <span className="gauge-fill" style={{ width: `${goal.progressPct}%` }} />
                   </div>
                   {goal.type === 'automatic' && (
-                    <p className="hint-text">Se actualizará sola cuando actives el asistente de IA.</p>
+                    <p className="hint-text">
+                      {goalReasons.has(goal.id)
+                        ? `Omega: ${goalReasons.get(goal.id)!.reason} (${goalReasons.get(goal.id)!.delta > 0 ? '+' : ''}${goalReasons.get(goal.id)!.delta}%)`
+                        : 'Omega ajusta este progreso según tu ejecución real.'}
+                    </p>
                   )}
                   {goal.reward && <p className="hint-text">Recompensa: {goal.reward}</p>}
                 </div>

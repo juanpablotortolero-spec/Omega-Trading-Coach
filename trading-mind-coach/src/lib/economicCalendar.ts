@@ -1,4 +1,6 @@
+import { readFunctionErrorMessage } from './functionsError';
 import { localIsoDate } from './calendar';
+import { supabase } from './supabaseClient';
 
 export type EconomicEvent = {
   title: string;
@@ -9,27 +11,30 @@ export type EconomicEvent = {
   previous: string;
 };
 
-const FEED_URL = 'https://nfs.faireconomy.media/ff_calendar_thisweek.json';
-// ForexFactory has no official public API. This is the unofficial feed most
-// trading tools use, fetched through a public CORS proxy since the browser
-// can't call it directly. If the proxy ever goes down, swap this for a
-// Supabase Edge Function that fetches the feed server-side instead.
-const PROXY_URL = `https://corsproxy.io/?url=${encodeURIComponent(FEED_URL)}`;
-
 let cache: { data: EconomicEvent[]; fetchedAt: number } | null = null;
 const CACHE_TTL_MS = 30 * 60 * 1000;
 
+/**
+ * ForexFactory has no official public API and its unofficial feed has no
+ * CORS headers, so the browser can't call it directly. This used to go
+ * through a public CORS proxy (corsproxy.io) — fragile in production since
+ * every user shared that same third-party point of failure. Fetching it
+ * server-side (Edge Function `economic-calendar`) removes the proxy
+ * entirely: a server calling another server has no CORS restriction.
+ */
 export async function getWeeklyEconomicEvents(): Promise<EconomicEvent[]> {
   if (cache && Date.now() - cache.fetchedAt < CACHE_TTL_MS) {
     return cache.data;
   }
 
-  const response = await fetch(PROXY_URL);
-  if (!response.ok) throw new Error('No se pudo cargar el calendario económico.');
+  const { data, error } = await supabase.functions.invoke('economic-calendar');
+  if (error) {
+    throw new Error(await readFunctionErrorMessage(error, 'No se pudo cargar el calendario económico.'));
+  }
 
-  const data = (await response.json()) as EconomicEvent[];
-  cache = { data, fetchedAt: Date.now() };
-  return data;
+  const events = data as EconomicEvent[];
+  cache = { data: events, fetchedAt: Date.now() };
+  return events;
 }
 
 export function getEventsForDate(events: EconomicEvent[], isoDate: string): EconomicEvent[] {
@@ -63,6 +68,7 @@ export function isWithinFetchedWeek(isoDate: string): boolean {
 const NEWS_KEYWORD_ALIASES: Record<string, string[]> = {
   nfp: ['non-farm', 'nonfarm', 'non farm', 'nfp', 'payrolls'],
   fomc: ['fomc'],
+  cpi: ['cpi', 'consumer price index'],
 };
 
 export type PlanNewsWarning = { keyword: string; events: EconomicEvent[] };

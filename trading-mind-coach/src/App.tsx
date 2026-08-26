@@ -7,6 +7,7 @@ import MainLayout from './components/MainLayout';
 
 const Bienvenida = lazy(() => import('./pages/Bienvenida'));
 const Dashboard = lazy(() => import('./components/Dashboard'));
+const OmegaDashboard = lazy(() => import('./pages/OmegaDashboard'));
 const TradingPlan = lazy(() => import('./pages/TradingPlan'));
 const JournalEntry = lazy(() => import('./pages/JournalEntry'));
 const Historial = lazy(() => import('./pages/Historial'));
@@ -73,6 +74,7 @@ function App() {
       <Routes>
         <Route element={<MainLayout />}>
           <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/omega-coach" element={<OmegaDashboard />} />
           <Route path="/manual-operativo" element={<TradingPlan />} />
           <Route path="/journal/nuevo" element={<JournalEntry />} />
           <Route path="/historial" element={<Historial />} />
