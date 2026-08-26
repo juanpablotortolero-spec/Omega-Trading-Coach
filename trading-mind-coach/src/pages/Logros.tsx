@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import MedalBadge from '../components/MedalBadge';
+import MissionBadge from '../components/MissionBadge';
 import OmegaMark from '../components/OmegaMark';
 import { useAuth } from '../contexts/AuthContext';
 import {
@@ -22,7 +22,7 @@ function MissionMedalCard({ label, totalCompletions }: MissionMedalCardProps) {
 
   return (
     <div className="panel medal-card">
-      <MedalBadge tier={progress.tierName} size={52} />
+      <MissionBadge tier={progress.tierName} size={72} />
       <span className="medal-card-title">{label}</span>
       <span className="medal-card-tier">
         {progress.tierName ? progress.tierName : 'Sin medalla todavía'}

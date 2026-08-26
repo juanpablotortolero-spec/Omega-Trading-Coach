@@ -1066,15 +1066,6 @@ tbody tr:hover {
   font-size: 1.05rem;
 }
 
-.medal-badge.medal-empty { color: rgba(156, 163, 175, 0.35); }
-.medal-badge.medal-bronce { color: #A9764F; }
-.medal-badge.medal-plata { color: #C6CCD6; }
-.medal-badge.medal-oro { color: var(--accent-gold); }
-.medal-badge.medal-platino { color: #E7EAF0; }
-.medal-badge.medal-diamante { color: #7FC4D8; }
-.medal-badge.medal-rubi { color: #C4485A; }
-.medal-badge.medal-esmeralda { color: #4FAE8A; }
-
 .medal-card {
   display: flex;
   flex-direction: column;

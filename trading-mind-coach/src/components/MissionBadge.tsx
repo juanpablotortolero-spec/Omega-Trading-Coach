@@ -1,6 +1,10 @@
 export type MissionBadgeTier = 'Bronce' | 'Plata' | 'Oro' | 'Platino' | 'Diamante' | 'Rubí' | 'Esmeralda';
 
-const GLOW_CLASS: Record<MissionBadgeTier, string> = {
+/** Estado interno para "todavía sin medalla" — no es un tier real, solo cómo se pinta cuando `tier` llega en null. */
+type EffectiveTier = MissionBadgeTier | 'Vacío';
+
+const GLOW_CLASS: Record<EffectiveTier, string> = {
+  Vacío: '',
   Bronce: '',
   Plata: '',
   Oro: 'mission-badge-glow-oro',
@@ -31,8 +35,16 @@ function ReededEdge({ color }: { color: string }) {
   );
 }
 
-/** Cinta de sujeción detrás del disco — misma en las 7 medallas, unifica la silueta de "medalla". */
-function Ribbon() {
+/** Cinta de sujeción detrás del disco — misma en las 7 medallas, unifica la silueta de "medalla". Apagada (gris) cuando todavía no hay medalla. */
+function Ribbon({ dim }: { dim?: boolean }) {
+  if (dim) {
+    return (
+      <g opacity="0.6">
+        <path d="M43 3 L50 9 L50 32 L45 27 L40 32 Z" fill="#333947" stroke="#20242E" strokeWidth="0.6" />
+        <path d="M57 3 L50 9 L50 32 L55 27 L60 32 Z" fill="#3F4657" stroke="#20242E" strokeWidth="0.6" />
+      </g>
+    );
+  }
   return (
     <g>
       <path d="M43 3 L50 9 L50 32 L45 27 L40 32 Z" fill="#4A2338" stroke="#2E1522" strokeWidth="0.6" />
@@ -165,8 +177,9 @@ function SetGem({ fillId, cut, prongColor }: { fillId: string; cut: 'rubi' | 'es
   );
 }
 
-function BadgeGradients({ tier, fillId, ringId }: { tier: MissionBadgeTier; fillId: string; ringId: string }) {
-  const stops: Record<MissionBadgeTier, [string, string, string]> = {
+function BadgeGradients({ tier, fillId, ringId }: { tier: EffectiveTier; fillId: string; ringId: string }) {
+  const stops: Record<EffectiveTier, [string, string, string]> = {
+    Vacío: ['#3A4150', '#2A303B', '#1B1F26'],
     Bronce: ['#DDA25F', '#B0703A', '#6B4423'],
     Plata: ['#FFFFFF', '#C6CCD6', '#7C8494'],
     Oro: ['#FFF3C4', '#D9AE6C', '#8A6B4E'],
@@ -175,7 +188,8 @@ function BadgeGradients({ tier, fillId, ringId }: { tier: MissionBadgeTier; fill
     Rubí: ['#FF9AA2', '#D8465A', '#6E1620'],
     Esmeralda: ['#B9F3D8', '#4FAE8A', '#186349'],
   };
-  const ringStops: Record<MissionBadgeTier, [string, string]> = {
+  const ringStops: Record<EffectiveTier, [string, string]> = {
+    Vacío: [stops.Vacío[0], stops.Vacío[2]],
     Bronce: [stops.Bronce[0], stops.Bronce[2]],
     Plata: [stops.Plata[0], stops.Plata[2]],
     Oro: [stops.Oro[0], stops.Oro[2]],
@@ -212,23 +226,28 @@ function BadgeGradients({ tier, fillId, ringId }: { tier: MissionBadgeTier; fill
  * comparten el disco redondo con una estrella que se va llenando y
  * enriqueciendo (laurel parcial en Plata, laurel completo + rayos en Oro);
  * Platino/Diamante cambian el emblema central a un corte facetado angular;
- * Rubí/Esmeralda culminan con una gema engastada en garras doradas.
+ * Rubí/Esmeralda culminan con una gema engastada en garras doradas. Con
+ * `tier` en null (todavía sin ganar ninguna medalla de esta misión) se
+ * pinta la misma silueta de medalla pero apagada/gris, sin emblema.
  */
-function MissionBadge({ tier, size = 96 }: { tier: MissionBadgeTier; size?: number }) {
-  const fillId = `mb-fill-${tier}`;
-  const ringId = `mb-ring-${tier}`;
+function MissionBadge({ tier, size = 96 }: { tier: MissionBadgeTier | null; size?: number }) {
+  const effectiveTier: EffectiveTier = tier ?? 'Vacío';
+  const fillId = `mb-fill-${effectiveTier}`;
+  const ringId = `mb-ring-${effectiveTier}`;
   const isJewel = tier === 'Rubí' || tier === 'Esmeralda';
   const accent = tier === 'Oro' ? '#FFF3D6' : tier === 'Plata' ? '#F4F6F9' : isJewel ? '#F2D399' : '#EAF9FC';
 
   return (
-    <div className={`mission-badge ${GLOW_CLASS[tier]}`} style={{ width: size, height: size }}>
+    <div className={`mission-badge ${GLOW_CLASS[effectiveTier]}`} style={{ width: size, height: size }}>
       <svg viewBox="0 0 100 100" width={size} height={size} fill="none">
-        <BadgeGradients tier={tier} fillId={fillId} ringId={ringId} />
-        <Ribbon />
+        <BadgeGradients tier={effectiveTier} fillId={fillId} ringId={ringId} />
+        <Ribbon dim={tier === null} />
         <circle cx="50" cy="50" r="46" fill="none" stroke={`url(#${ringId})`} strokeWidth="3" />
         <ReededEdge color={`url(#${ringId})`} />
         <circle cx="50" cy="50" r="40.5" fill="none" stroke={`url(#${ringId})`} strokeWidth="1" opacity="0.75" />
         <circle cx="50" cy="50" r="37" fill={`url(#${fillId})`} stroke={`url(#${ringId})`} strokeWidth="1" />
+
+        {tier === null && <circle cx="50" cy="50" r="12" fill="none" stroke={`url(#${ringId})`} strokeWidth="1.2" strokeDasharray="3 3" opacity="0.7" />}
 
         {(tier === 'Bronce' || tier === 'Plata' || tier === 'Oro') && (
           <>
