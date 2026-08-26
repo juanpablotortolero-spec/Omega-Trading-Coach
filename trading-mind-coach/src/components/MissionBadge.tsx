@@ -5,8 +5,8 @@ type EffectiveTier = MissionBadgeTier | 'Vacío';
 
 const GLOW_CLASS: Record<EffectiveTier, string> = {
   Vacío: '',
-  Bronce: '',
-  Plata: '',
+  Bronce: 'mission-badge-glow-bronce',
+  Plata: 'mission-badge-glow-plata',
   Oro: 'mission-badge-glow-oro',
   Platino: 'mission-badge-glow-platino',
   Diamante: 'mission-badge-glow-diamante',
@@ -238,7 +238,10 @@ function MissionBadge({ tier, size = 96 }: { tier: MissionBadgeTier | null; size
   const accent = tier === 'Oro' ? '#FFF3D6' : tier === 'Plata' ? '#F4F6F9' : isJewel ? '#F2D399' : '#EAF9FC';
 
   return (
-    <div className={`mission-badge ${GLOW_CLASS[effectiveTier]}`} style={{ width: size, height: size }}>
+    <div
+      className={`mission-badge ${GLOW_CLASS[effectiveTier]} ${tier === null ? 'mission-badge-empty' : ''}`}
+      style={{ width: size, height: size }}
+    >
       <svg viewBox="0 0 100 100" width={size} height={size} fill="none">
         <BadgeGradients tier={effectiveTier} fillId={fillId} ringId={ringId} />
         <Ribbon dim={tier === null} />

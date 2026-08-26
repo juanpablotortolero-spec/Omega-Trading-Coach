@@ -1009,11 +1009,37 @@ tbody tr:hover {
 }
 
 .mission-badge {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  border-radius: 50%;
+  overflow: hidden;
+  transition: transform 0.3s ease, filter 0.3s ease;
 }
 
+/* Mismo barrido diagonal de luz que .badge-mark/.brand-crest-mark (rangos
+   Virtus y logo de Omega) — una capa aparte encima del SVG, animada con la
+   misma keyframe ya existente para que las 3 insignias "respiren" igual. */
+.mission-badge::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(115deg, transparent 35%, rgba(255, 248, 230, 0.55) 48%, transparent 61%);
+  background-repeat: no-repeat;
+  background-size: 300% 300%;
+  background-position: -150% -150%;
+  animation: metallic-shimmer 10s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.mission-badge.mission-badge-empty::after {
+  animation: none;
+  opacity: 0;
+}
+
+.mission-badge-glow-bronce { filter: drop-shadow(0 0 5px rgba(176, 112, 58, 0.5)); }
+.mission-badge-glow-plata { filter: drop-shadow(0 0 5px rgba(198, 204, 214, 0.5)); }
 .mission-badge-glow-oro { filter: drop-shadow(0 0 6px rgba(201, 166, 107, 0.55)); }
 .mission-badge-glow-platino { filter: drop-shadow(0 0 10px rgba(191, 243, 250, 0.65)); }
 .mission-badge-glow-diamante { filter: drop-shadow(0 0 14px rgba(103, 232, 249, 0.75)); }
@@ -1058,6 +1084,13 @@ tbody tr:hover {
   align-items: center;
   gap: 14px;
   padding: 32px 20px;
+  transition: transform 0.3s ease, box-shadow 0.3s ease, background 0.3s ease;
+}
+
+.badge-gallery-card:hover {
+  transform: translateY(-2px);
+  background: rgba(201, 166, 107, 0.05);
+  box-shadow: 0 10px 24px rgba(201, 166, 107, 0.12);
 }
 
 .badge-gallery-card-name {
@@ -1073,6 +1106,13 @@ tbody tr:hover {
   gap: 10px;
   padding: 22px 16px;
   text-align: center;
+  transition: transform 0.3s ease, box-shadow 0.3s ease, background 0.3s ease;
+}
+
+.medal-card:hover {
+  transform: translateY(-2px);
+  background: rgba(201, 166, 107, 0.05);
+  box-shadow: 0 10px 24px rgba(201, 166, 107, 0.12);
 }
 
 .medal-card-title {
