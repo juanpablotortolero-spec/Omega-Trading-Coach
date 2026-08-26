@@ -39,6 +39,7 @@ export type OmegaEffects = {
   sessionVerdict: { ataraxia_score: number | null; verdict: string; went_well: string[]; went_wrong: string[] } | null;
   goalUpdates: { goalId: string; goalText: string; delta: number; newPct: number; reason: string }[];
   missionProgressUpdates: { missionId: string; missionTitle: string; newPct: number; reason: string }[];
+  psychGrowth: { category: 'correccion' | 'fortaleza'; reason: string }[];
 };
 
 type OmegaRequestType =
@@ -263,6 +264,7 @@ export function useOmegaAgent() {
         requestType?: OmegaRequestType;
         sessionDate?: string;
         fundingAccounts?: Awaited<ReturnType<typeof getFundingRiskContext>>;
+        previousVerdict?: { wentWell: string[]; wentWrong: string[] };
       },
     ) => {
       if (!user) return;
@@ -348,13 +350,22 @@ export function useOmegaAgent() {
           return;
         }
         const digest = buildSessionDigest(targetDate, entry, operations, plan);
-        const fundingAccounts = await getFundingRiskContext(entry.id);
+        // Se pide ANTES de invocar a Omega: evaluate_session recién va a
+        // crear el veredicto de HOY dentro de esta misma llamada, así que
+        // en este punto getLatestSessionVerdict todavía devuelve el de la
+        // sesión anterior — exactamente lo que credit_psychological_growth
+        // necesita para comparar.
+        const [fundingAccounts, latestVerdict] = await Promise.all([
+          getFundingRiskContext(entry.id),
+          getLatestSessionVerdict(user.id),
+        ]);
         await invokeOmega([...messages, { role: 'user', content: `Evalúa mi sesión del ${targetDate}.` }], {
           ataraxiaPct: score,
           sessionDigest: digest,
           requestType: 'auditoria_post_sesion',
           sessionDate: targetDate,
           fundingAccounts,
+          previousVerdict: latestVerdict ? { wentWell: latestVerdict.went_well, wentWrong: latestVerdict.went_wrong } : undefined,
         });
       } catch (err) {
         setError(err instanceof Error ? err.message : 'No se pudo evaluar la sesión.');

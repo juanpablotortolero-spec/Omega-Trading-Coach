@@ -858,6 +858,11 @@ export async function insertSyncedOperations(
 // crearía un ciclo de módulos. Debe mantenerse igual a `constructiveEmotions`.
 const constructiveEmotionsSet = new Set(['Calma', 'Disciplina', 'Seguridad', 'Paciencia']);
 
+/** true solo si hay al menos una emoción marcada y todas son constructivas — mismo criterio que CONSTRUCTIVE_EMOTIONAL_STATE de abajo, expuesto para la misión "No tuve emociones negativas". */
+export function hasOnlyConstructiveEmotions(emotions: string[]): boolean {
+  return emotions.length > 0 && emotions.every((emotion) => constructiveEmotionsSet.has(emotion));
+}
+
 // Contexto de sinergia Ataraxia × Virtus — ver computeVirtusEventsV2.
 export type VirtusSynergyContext = {
   /** Ataraxia (0-100) de la sesión que se está guardando; null si no hay datos suficientes. */
@@ -1747,6 +1752,103 @@ export async function getWeeklyMissionCompletionCounts(userId: string): Promise<
   const counts: MissionCompletionCounts = {};
   (data ?? []).forEach((row) => {
     counts[row.mission_key] = (counts[row.mission_key] ?? 0) + 1;
+  });
+  return counts;
+}
+
+// ---------------------------------------------------------------------------
+// Misiones de Operador y Psicológicas — mismo mecanismo anti-trampa que las
+// misiones diarias: se verifican solas contra respuestas reales del quiz,
+// operaciones y la Ataraxia ya calculada, nunca por autoreporte.
+// ---------------------------------------------------------------------------
+
+export const OPERATOR_PSYCH_MISSION_KEYS = {
+  ANALYSIS_CORRECT: 'ANALYSIS_CORRECT',
+  RISK_MANAGEMENT_MISSION: 'RISK_MANAGEMENT_MISSION',
+  RESPECT_ANALYSIS: 'RESPECT_ANALYSIS',
+  NO_NEGATIVE_EMOTIONS: 'NO_NEGATIVE_EMOTIONS',
+  DISCIPLINE_85: 'DISCIPLINE_85',
+} as const;
+
+const SETUP_MISSION_KEY_PREFIX = 'setup:';
+
+/**
+ * Análisis correcto / manejo de riesgo / respeto al análisis / sin emociones
+ * negativas / disciplina — las 5 son "una vez por día" como las 4 misiones
+ * diarias originales, así que reutilizan el mismo upsert+ignoreDuplicates.
+ */
+export async function logOperatorAndPsychMissionCompletions(
+  userId: string,
+  input: { entryDate: string; entry: JournalEntryFull; ataraxiaScore: number | null },
+): Promise<void> {
+  const quiz = input.entry.custom_fields.quiz;
+  const keys: string[] = [];
+
+  if (quiz.bias_correct?.answer === 'Sí') keys.push(OPERATOR_PSYCH_MISSION_KEYS.ANALYSIS_CORRECT);
+  if (quiz.risk_respected?.answer === 'Sí') keys.push(OPERATOR_PSYCH_MISSION_KEYS.RISK_MANAGEMENT_MISSION);
+  if (quiz.narrative_respected?.answer === 'Sí') keys.push(OPERATOR_PSYCH_MISSION_KEYS.RESPECT_ANALYSIS);
+  if (hasOnlyConstructiveEmotions(input.entry.custom_fields.psychology_emotions)) {
+    keys.push(OPERATOR_PSYCH_MISSION_KEYS.NO_NEGATIVE_EMOTIONS);
+  }
+  if (input.ataraxiaScore !== null && input.ataraxiaScore >= 85) {
+    keys.push(OPERATOR_PSYCH_MISSION_KEYS.DISCIPLINE_85);
+  }
+
+  if (keys.length === 0) return;
+
+  const rows = keys.map((key) => ({ user_id: userId, mission_key: key, entry_date: input.entryDate }));
+  const { error } = await supabase
+    .from('core_mission_completions')
+    .upsert(rows, { onConflict: 'user_id,mission_key,entry_date', ignoreDuplicates: true });
+  if (error) throw error;
+}
+
+/**
+ * Medallas de setup — a diferencia de las de arriba, un setup puede
+ * ejecutarse VARIAS veces el mismo día, así que en vez de upsert-e-ignorar
+ * se REEMPLAZA por completo el conteo del día (borra + inserta), igual que
+ * `replaceOperations`/`replaceVirtusEvents`. Esto evita depender del id de
+ * cada operación (que cambia en cada re-sello, ver `replaceOperations`) y
+ * hace que editar el día corrija el conteo en vez de duplicarlo o perderlo.
+ * "Válido" = se ejecutó de verdad (`quality` no nulo ni "No ejecuté") y no
+ * rompió el plan — nunca mira el P&L.
+ */
+export async function replaceSetupMissionCompletions(
+  userId: string,
+  entryDate: string,
+  operations: OperationItem[],
+  setups: SetupItem[],
+): Promise<void> {
+  const { error: deleteError } = await supabase
+    .from('core_mission_completions')
+    .delete()
+    .eq('user_id', userId)
+    .eq('entry_date', entryDate)
+    .like('mission_key', `${SETUP_MISSION_KEY_PREFIX}%`);
+  if (deleteError) throw deleteError;
+
+  const rows = operations
+    .filter((op) => op.quality !== null && op.quality !== 'No ejecuté' && !op.brokePlan && op.model)
+    .map((op) => setups.find((setup) => setup.name === op.model))
+    .filter((setup): setup is SetupItem => Boolean(setup))
+    .map((setup) => ({ user_id: userId, mission_key: `${SETUP_MISSION_KEY_PREFIX}${setup.id}`, entry_date: entryDate }));
+
+  if (rows.length === 0) return;
+
+  const { error: insertError } = await supabase.from('core_mission_completions').insert(rows);
+  if (insertError) throw insertError;
+}
+
+export type PsychGrowthCategory = 'correccion' | 'fortaleza';
+
+export async function getPsychGrowthCounts(userId: string): Promise<Record<PsychGrowthCategory, number>> {
+  const { data, error } = await supabase.from('psychological_growth_events').select('category').eq('user_id', userId);
+  if (error) throw error;
+
+  const counts: Record<PsychGrowthCategory, number> = { correccion: 0, fortaleza: 0 };
+  (data ?? []).forEach((row) => {
+    const category = row.category as PsychGrowthCategory;
+    counts[category] = (counts[category] ?? 0) + 1;
   });
   return counts;
 }

@@ -40,6 +40,13 @@ export function EffectsSummary({ effects }: { effects: OmegaEffects }) {
       kind: 'mission',
     }),
   );
+  effects.psychGrowth.forEach((g, i) =>
+    chips.push({
+      key: `psych-${i}`,
+      label: g.category === 'correccion' ? 'Corrección de errores' : 'Fortaleza sostenida',
+      kind: 'positive',
+    }),
+  );
 
   if (chips.length === 0) return null;
 

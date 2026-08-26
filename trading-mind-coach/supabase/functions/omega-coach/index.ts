@@ -18,6 +18,7 @@ type Effects = {
   sessionVerdict: { ataraxia_score: number | null; verdict: string; went_well: string[]; went_wrong: string[] } | null;
   goalUpdates: { goalId: string; goalText: string; delta: number; newPct: number; reason: string }[];
   missionProgressUpdates: { missionId: string; missionTitle: string; newPct: number; reason: string }[];
+  psychGrowth: { category: 'correccion' | 'fortaleza'; reason: string }[];
 };
 
 const MAX_TOOL_ITERATIONS = 5;
@@ -83,6 +84,7 @@ Deno.serve(async (req) => {
       sessionVerdict: null,
       goalUpdates: [],
       missionProgressUpdates: [],
+      psychGrowth: [],
     };
 
     // deno-lint-ignore no-explicit-any
@@ -344,6 +346,17 @@ async function runTool(
 
       const missionTitle = context.activeMissions?.find((mission) => mission.id === input.mission_id)?.title ?? input.mission_id;
       effects.missionProgressUpdates.push({ missionId: input.mission_id, missionTitle, newPct, reason: input.reason });
+      return { ok: true };
+    }
+
+    if (name === 'credit_psychological_growth') {
+      const { error } = await adminClient.from('psychological_growth_events').insert({
+        user_id: userId,
+        category: input.category,
+        reason: input.reason,
+      });
+      if (error) throw error;
+      effects.psychGrowth.push({ category: input.category, reason: input.reason });
       return { ok: true };
     }
 

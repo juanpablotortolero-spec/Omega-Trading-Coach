@@ -28,11 +28,13 @@ import {
   getWeeklyKillSwitchStatus,
   newOperation,
   logCoreMissionCompletions,
+  logOperatorAndPsychMissionCompletions,
   postMarketQuizQuestions,
   psychologyEmotions,
   removeScreenshot,
   replaceJournalFundingAccounts,
   replaceOperations,
+  replaceSetupMissionCompletions,
   replaceVirtusEvents,
   shareJournalEntry,
   shareJournalEntryToAgora,
@@ -576,6 +578,12 @@ function JournalEntry() {
           (question) => entryToSave.custom_fields.quiz[question.key]?.answer !== null,
         ),
       });
+      await logOperatorAndPsychMissionCompletions(user.id, {
+        entryDate: entryToSave.entry_date,
+        entry: entryToSave,
+        ataraxiaScore: disciplineResult.score,
+      });
+      await replaceSetupMissionCompletions(user.id, entryToSave.entry_date, operations, plan.setups);
 
       setEntry((current) => ({ ...current, id: entryId, custom_fields: entryToSave.custom_fields }));
       setSavedAt(Date.now());

@@ -41,6 +41,13 @@ export type OmegaContext = {
    */
   activeMissions?: { id: string; title: string; description: string; progressPct: number }[];
   /**
+   * El último veredicto guardado ANTES de esta sesión (went_well/went_wrong)
+   * — solo se pasa en auditoría post-sesión real. Es la única forma de que
+   * Omega pueda decidir si el trader corrigió una debilidad señalada o
+   * sostuvo una fortaleza reconocida, en vez de inventar que "mejoró algo".
+   */
+  previousVerdict?: { wentWell: string[]; wentWrong: string[] };
+  /**
    * Cuentas de fondeo reales asociadas al journal de esta sesión (ver
    * journal_funding_accounts) — `dangerPct` ya viene calculado por el hook
    * con la MISMA fórmula que el indicador rojo de FundingAccountCard, así
@@ -83,6 +90,15 @@ function formatAutomaticGoalsBlock(context: OmegaContext): string {
   return `\nMetas automáticas del trader (progreso real, tú lo ajustas con update_goal_progress):\n${context.automaticGoals
     .map((goal) => `- id "${goal.id}": "${goal.text}" — ${goal.progressPct}% actual`)
     .join('\n')}\n`;
+}
+
+function formatPreviousVerdictBlock(context: OmegaContext): string {
+  if (!context.previousVerdict) return '';
+  const { wentWell, wentWrong } = context.previousVerdict;
+  if (wentWell.length === 0 && wentWrong.length === 0) return '';
+  return `\nÚltimo veredicto guardado ANTES de hoy (para comparar con la evidencia de esta sesión, ver credit_psychological_growth):
+- Se hizo bien: ${wentWell.join('; ') || '—'}
+- Se hizo mal: ${wentWrong.join('; ') || '—'}\n`;
 }
 
 function formatActiveMissionsBlock(context: OmegaContext): string {
@@ -158,7 +174,7 @@ Tono: crudo, estoico, directo. Sin lenguaje motivacional vacío, sin celebrar de
 
 La Ataraxia (0-100%) que ves en el contexto es un dato REAL ya calculado por el sistema a partir del journal del trader — nunca la recalcules ni des tu propio número como si fuera el oficial. Tu trabajo es interpretarla y emitir juicio citando los marcos de arriba, no re-derivarla.
 
-Tienes acceso a 7 herramientas. Úsalas con criterio, no en cada respuesta — y cuando decidas que una acción corresponde, EJECÚTALA con la tool correspondiente en vez de solo describirla en texto:
+Tienes acceso a 8 herramientas. Úsalas con criterio, no en cada respuesta — y cuando decidas que una acción corresponde, EJECÚTALA con la tool correspondiente en vez de solo describirla en texto:
 - evaluate_session: veredicto formal de una sesión completa (qué se hizo bien, qué se hizo mal) — úsala siempre que el contexto sea una auditoría post-sesión real, no en charla suelta.
 - update_virtus_and_xp: para premiar ejecución mecánica impecable o castigar indisciplina real (romper el plan, exceder el riesgo, operar fuera de ventana, venganza). No la uses por charla casual.
 - validate_positive_streak: cuando identifiques una racha real de disciplina sostenida (varios días o sesiones seguidas cumpliendo el plan) — reconocimiento explícito, distinto de un premio puntual.
@@ -166,6 +182,7 @@ Tienes acceso a 7 herramientas. Úsalas con criterio, no en cada respuesta — y
 - assign_ai_mission: misión concreta y medible ligada a un patrón real — puede ser diaria, semanal o única.
 - update_goal_progress: solo para las metas listadas como "automáticas" abajo (las 'manual' las controla el trader con su propio slider, nunca las toques) — cuando haya evidencia real de avance o retroceso hacia una de esas metas en esta sesión o conversación. Usa el id exacto listado. Muévete de a poco (delta modesto, normalmente entre 3 y 15 puntos; negativo si hubo un retroceso real) — una meta se construye de a poco, nunca de un salto a 100%. No la uses sin una razón concreta y verificable. IMPORTANTE: cuando la uses, mencioná también en tu respuesta de texto qué hizo el trader que la impulsó (o qué le falta concretamente) — nunca la muevas en silencio sin que el trader se entere por qué cambió.
 - update_mission_progress: revisa las "misiones activas" listadas abajo contra la evidencia real de esta sesión o conversación — nunca le preguntes al trader si la cumplió, decidilo vos con los datos reales (journal, operaciones, lo que te cuenta). Si hay evidencia de avance total o parcial, usa esta tool con un delta_pct (puede ser 100 de una vez si la evidencia es concluyente y binaria, o modesto si es progreso parcial). El trader ya NO puede marcar sus propias misiones como completadas — esta tool es el único camino.
+- credit_psychological_growth: SOLO en auditoría post-sesión real, y SOLO si el contexto trae un "último veredicto guardado" para comparar. Usa 'correccion' si la sesión de HOY muestra evidencia concreta de que el trader corrigió activamente algo de "Se hizo mal" de ese veredicto anterior; usa 'fortaleza' si sostuvo algo de "Se hizo bien". No la uses sin ese veredicto previo como referencia, y no la uses por una mejora genérica sin conexión clara a algo ya señalado antes — y mencionalo explícitamente en tu respuesta, nunca en silencio.
 
 CANDADO DE RIESGO (regla dura, no opcional): si el contexto de abajo trae cuentas de fondeo y alguna tiene un "% de distancia consumida hacia la quema" de ${RISK_LOCK_DANGER_PCT}% o más (es decir, está a menos de ${100 - RISK_LOCK_DANGER_PCT}% de su límite de pérdida MLL), es OBLIGATORIO: (1) usar trigger_ui_alert con severidad 'critical' advirtiendo esto explícitamente, y (2) usar assign_ai_mission para asignar una misión concreta de reducción de riesgo (ej. bajar el lotaje, reducir el riesgo por operación). No lo dejes solo en el texto de tu respuesta — ejecuta ambas tools.
 
@@ -173,7 +190,7 @@ Contexto actual del trader (real, de su cuenta):
 - Rango Virtus: ${context.virtusStage}
 - Puntos Virtus totales: ${context.virtusTotal}
 - Ataraxia (ejecución mecánica y paz mental) hoy: ${context.ataraxiaPct !== null ? `${context.ataraxiaPct}%` : 'sin datos suficientes todavía hoy'}
-${formatAutomaticGoalsBlock(context)}${formatActiveMissionsBlock(context)}${formatFundingAccountsBlock(context)}${context.sessionDigest ? `\n${context.sessionDigest}\n` : ''}
+${formatAutomaticGoalsBlock(context)}${formatActiveMissionsBlock(context)}${formatPreviousVerdictBlock(context)}${formatFundingAccountsBlock(context)}${context.sessionDigest ? `\n${context.sessionDigest}\n` : ''}
 ${REQUEST_TYPE_INSTRUCTIONS[requestType]}`;
 }
 
@@ -294,6 +311,23 @@ export const OMEGA_TOOLS = [
         reason: { type: 'string', description: 'Evidencia concreta observada, en español, que justifica el avance.' },
       },
       required: ['mission_id', 'delta_pct', 'reason'],
+    },
+  },
+  {
+    name: 'credit_psychological_growth',
+    description:
+      'Acredita crecimiento psicológico real, comparando el último veredicto guardado (went_well/went_wrong) contra la evidencia de la sesión de hoy. Solo en auditoría post-sesión, y solo con ese veredicto previo como referencia concreta.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        category: {
+          type: 'string',
+          enum: ['correccion', 'fortaleza'],
+          description: '"correccion" si corrigió algo de "Se hizo mal" del veredicto anterior; "fortaleza" si sostuvo algo de "Se hizo bien".',
+        },
+        reason: { type: 'string', description: 'Qué debilidad se corrigió o qué fortaleza se sostuvo, y la evidencia concreta de hoy.' },
+      },
+      required: ['category', 'reason'],
     },
   },
 ] as const;
