@@ -7,10 +7,14 @@ import {
   getJournalEntryByDate,
   getLatestJournalEntryDate,
   getLatestSessionVerdict,
+  getOmegaAuditsForWeek,
   getOperations,
   getTradingPlan,
+  getVirtusAiEventsForWeek,
   getVirtusDelta,
   getVirtusTotal,
+  getWeekBounds,
+  getWeeklyKillSwitchStatus,
   type AiSessionVerdict,
   type FundingAccount,
   type JournalEntryFull,
@@ -35,7 +39,12 @@ export type OmegaEffects = {
   goalUpdates: { goalId: string; goalText: string; delta: number; newPct: number; reason: string }[];
 };
 
-type OmegaRequestType = 'chat' | 'briefing_pre_sesion' | 'auditoria_post_sesion' | 'auditoria_head_coach';
+type OmegaRequestType =
+  | 'chat'
+  | 'briefing_pre_sesion'
+  | 'auditoria_post_sesion'
+  | 'auditoria_head_coach'
+  | 'recap_semanal';
 
 type OmegaResponse = { ok: true; reply: string; effects: OmegaEffects } | { ok: false; error: string };
 
@@ -46,6 +55,25 @@ export type HeadCoachAudit = {
   weaknesses: { behavior: string; hypothesis: string; fix: string }[];
   daily_missions: { id: number; task: string; xpReward: number }[];
   manual_audit: { issue_detected: string; suggested_rule: string };
+};
+
+export type WeeklyRecap = {
+  weekly_verdict: string;
+  top_strength: string;
+  critical_leak: string;
+  action_plan: string[];
+};
+
+export type WeeklyRecapResult = {
+  recap: WeeklyRecap;
+  metrics: {
+    greenDays: number;
+    redDays: number;
+    missionsCompleted: number;
+    xpFromMissions: number;
+    weekStart: string;
+    weekEnd: string;
+  };
 };
 
 /** Quita cercas de markdown (```json ... ```) si el modelo las agregó a pesar de la instrucción de responder JSON puro. */
@@ -428,6 +456,88 @@ export function useOmegaAgent() {
     [user],
   );
 
+  /**
+   * Recap Semanal para OmegaDashboard — mismo aislamiento que
+   * requestHeadCoachAudit (no toca el chat flotante). No se persiste en
+   * ninguna tabla: no se pidió historial de recaps pasados, solo generarlo y
+   * mostrarlo en el modal al hacer clic.
+   */
+  const requestWeeklyRecap = useCallback(async (): Promise<WeeklyRecapResult> => {
+    if (!user) throw new Error('No autenticado.');
+
+    const { weekStart, weekEnd } = getWeekBounds(new Date());
+    const [killSwitch, audits, virtusEvents, virtusTotal] = await Promise.all([
+      getWeeklyKillSwitchStatus(user.id, new Date()),
+      getOmegaAuditsForWeek(user.id, weekStart, weekEnd),
+      getVirtusAiEventsForWeek(user.id, weekStart, weekEnd),
+      getVirtusTotal(user.id),
+    ]);
+
+    const gameStateCounts = { A: 0, B: 0, C: 0 };
+    audits.forEach((audit) => {
+      gameStateCounts[audit.gameState] += 1;
+    });
+
+    const missionEvents = virtusEvents.filter((event) => event.reason.startsWith('Misión completada:'));
+    const missionsCompleted = missionEvents.length;
+    const xpFromMissions = missionEvents.reduce((sum, event) => sum + event.points, 0);
+
+    const strengthsLines = audits.flatMap((a) => a.strengths.map((s) => `- ${s.behavior}`));
+    const weaknessesLines = audits.flatMap((a) => a.weaknesses.map((w) => `- ${w.behavior}`));
+
+    const digest = `RECAP SEMANAL — semana del ${weekStart} al ${weekEnd}:
+
+Resultado neto: ${killSwitch.greenDays} días ganadores, ${killSwitch.redDays} días en pérdida (de lunes a viernes).
+
+Estados mentales registrados (Juego A/B/C, de las auditorías de esta semana):
+- Juego A: ${gameStateCounts.A} día(s)
+- Juego B: ${gameStateCounts.B} día(s)
+- Juego C: ${gameStateCounts.C} día(s)
+${audits.length === 0 ? '(No hay auditorías de "Auditar Última Sesión" registradas esta semana.)' : ''}
+
+Misiones de Omega completadas esta semana: ${missionsCompleted}
+XP ganada por esas misiones: ${xpFromMissions} pts
+Virtus total de la cuenta: ${virtusTotal} pts
+
+Fortalezas identificadas esta semana:
+${strengthsLines.length > 0 ? strengthsLines.join('\n') : '(ninguna registrada)'}
+
+Fugas de capital/energía identificadas esta semana (buscá la que más se repite):
+${weaknessesLines.length > 0 ? weaknessesLines.join('\n') : '(ninguna registrada)'}`;
+
+    const stage = currentStage(virtusTotal);
+    const { data, error: invokeError } = await supabase.functions.invoke('omega-coach', {
+      body: {
+        messages: [{ role: 'user', content: digest }],
+        context: { virtusStage: stage.level, virtusTotal, ataraxiaPct: null, requestType: 'recap_semanal' },
+      },
+    });
+
+    if (invokeError) {
+      throw new Error(await readFunctionErrorMessage(invokeError, 'No se pudo contactar a Omega.'));
+    }
+
+    const result = data as OmegaResponse;
+    if (!result.ok) throw new Error(result.error);
+
+    try {
+      const recap = JSON.parse(stripMarkdownFence(result.reply)) as WeeklyRecap;
+      return {
+        recap,
+        metrics: {
+          greenDays: killSwitch.greenDays,
+          redDays: killSwitch.redDays,
+          missionsCompleted,
+          xpFromMissions,
+          weekStart,
+          weekEnd,
+        },
+      };
+    } catch {
+      throw new Error('Omega no devolvió un JSON válido.');
+    }
+  }, [user]);
+
   return {
     messages,
     sending,
@@ -439,5 +549,6 @@ export function useOmegaAgent() {
     evaluateSession,
     requestBriefing,
     requestHeadCoachAudit,
+    requestWeeklyRecap,
   };
 }

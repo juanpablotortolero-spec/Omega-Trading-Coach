@@ -4,9 +4,10 @@ import DailyMissions, { type DailyMissionItem } from '../components/DailyMission
 import OmegaMark from '../components/OmegaMark';
 import PsychoProfileCard from '../components/PsychoProfileCard';
 import TendlerGameMeter from '../components/TendlerGameMeter';
+import WeeklyRecapModal from '../components/WeeklyRecapModal';
 import { useAuth } from '../contexts/AuthContext';
 import { useOmega } from '../contexts/OmegaContext';
-import type { HeadCoachAudit } from '../hooks/useOmegaAgent';
+import type { HeadCoachAudit, WeeklyRecapResult } from '../hooks/useOmegaAgent';
 import { getTodayOmegaAudit } from '../lib/api';
 import { localIsoDate } from '../lib/calendar';
 
@@ -31,10 +32,14 @@ function formatProfileItems(items: HeadCoachAudit['strengths'] | HeadCoachAudit[
 
 function OmegaDashboard() {
   const { user } = useAuth();
-  const { requestHeadCoachAudit } = useOmega();
+  const { requestHeadCoachAudit, requestWeeklyRecap } = useOmega();
   const [audit, setAudit] = useState<HeadCoachAudit | null>(null);
   const [auditing, setAuditing] = useState(false);
   const [auditError, setAuditError] = useState<string | null>(null);
+  const [recapResult, setRecapResult] = useState<WeeklyRecapResult | null>(null);
+  const [recapOpen, setRecapOpen] = useState(false);
+  const [recapLoading, setRecapLoading] = useState(false);
+  const [recapError, setRecapError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -71,6 +76,21 @@ function OmegaDashboard() {
     }
   };
 
+  const handleGenerateRecap = async () => {
+    if (recapLoading) return;
+    setRecapLoading(true);
+    setRecapError(null);
+    try {
+      const result = await requestWeeklyRecap();
+      setRecapResult(result);
+      setRecapOpen(true);
+    } catch (err) {
+      setRecapError(err instanceof Error ? err.message : 'No se pudo generar la presentación semanal.');
+    } finally {
+      setRecapLoading(false);
+    }
+  };
+
   const missions: DailyMissionItem[] = audit
     ? audit.daily_missions.map((mission) => ({ id: String(mission.id), label: mission.task, rewardXp: mission.xpReward }))
     : DAILY_MISSIONS;
@@ -89,14 +109,22 @@ function OmegaDashboard() {
         <OmegaMark size={40} />
         <div className="omega-hq-header-copy">
           <h2>Omega — Head Coach</h2>
-          <p className="hint-text">Tu centro de mando dedicado a Omega — en construcción.</p>
+          <p className="hint-text">Tu centro de mando dedicado a Omega.</p>
         </div>
-        <button type="button" className="primary-btn btn-sm omega-hq-audit-btn" onClick={handleAudit} disabled={auditing}>
-          {auditing ? 'Omega analizando sesión…' : 'Auditar Última Sesión'}
-        </button>
+        <div className="omega-hq-header-actions">
+          <button type="button" className="ghost-btn btn-sm" onClick={handleGenerateRecap} disabled={recapLoading}>
+            {recapLoading ? 'Generando…' : 'Generar Presentación Semanal'}
+          </button>
+          <button type="button" className="primary-btn btn-sm omega-hq-audit-btn" onClick={handleAudit} disabled={auditing}>
+            {auditing ? 'Omega analizando sesión…' : 'Auditar Última Sesión'}
+          </button>
+        </div>
       </header>
 
       {auditError && <p className="omega-chat-error">{auditError}</p>}
+      {recapError && <p className="omega-chat-error">{recapError}</p>}
+
+      <WeeklyRecapModal open={recapOpen} onClose={() => setRecapOpen(false)} result={recapResult} />
 
       <BriefingPreSesion />
 

@@ -2,7 +2,12 @@
 // index.ts para que el handler HTTP quede legible (mismo patrón que
 // _shared/tradovate.ts para tradovate-connect/tradovate-sync).
 
-export type OmegaRequestType = 'chat' | 'briefing_pre_sesion' | 'auditoria_post_sesion' | 'auditoria_head_coach';
+export type OmegaRequestType =
+  | 'chat'
+  | 'briefing_pre_sesion'
+  | 'auditoria_post_sesion'
+  | 'auditoria_head_coach'
+  | 'recap_semanal';
 
 export type OmegaContext = {
   virtusStage: string;
@@ -74,6 +79,8 @@ const REQUEST_TYPE_INSTRUCTIONS: Record<OmegaRequestType, string> = {
     'Esto es un BRIEFING PRE-SESIÓN — el trader todavía no ha operado hoy. No hay journal que auditar. Genera proactivamente un briefing corto basado en las reglas de su Manual Operativo para hoy y su tendencia reciente de Virtus/Ataraxia (ambas en el contexto): qué debe vigilar, qué patrón reciente no debe repetir, y un recordatorio de una regla concreta de su plan. Si el digest trae noticias de alto impacto reales para hoy (CPI, NFP, FOMC, etc.) Y el trader tiene un "Plan ante eventos macro" definido, cruza ambos explícitamente en tu respuesta (ej. "Hoy hay CPI a las 8:30 AM. Tu manual dicta no operar 15 minutos antes ni después de la noticia. Modula tu riesgo.") — no los menciones por separado sin conectarlos. No inventes datos de operaciones — hoy todavía no hay ninguna.',
   // No se usa nunca — buildSystemPrompt retorna antes de llegar acá para este requestType (ver buildHeadCoachSystemPrompt).
   auditoria_head_coach: '',
+  // No se usa nunca — buildSystemPrompt retorna antes de llegar acá para este requestType (ver buildWeeklyRecapSystemPrompt).
+  recap_semanal: '',
 };
 
 /**
@@ -95,11 +102,28 @@ ${formatFundingAccountsBlock(context)}
 Si el CANDADO DE RIESGO está activado arriba: "daily_feedback" tiene que reflejar la advertencia severa explícitamente (no la omitas ni la suavices), y uno de los "daily_missions" tiene que ser, concretamente, una misión de reducción de riesgo (ej. bajar el lotaje o el riesgo por operación) — no una misión genérica.`;
 }
 
+/**
+ * Prompt aislado para el Recap Semanal (OmegaDashboard) — mismo mecanismo que
+ * el Head Coach diario: sin tools disponibles (index.ts las omite para este
+ * requestType también), la única respuesta posible es el JSON exacto que el
+ * frontend parsea para pintar el modal de 4 bloques.
+ */
+function buildWeeklyRecapSystemPrompt(context: OmegaContext): string {
+  return `Eres Omega, Head Coach de trading. Analiza la semana operativa basándote en la filosofía de Brett Steenbarger (autoevaluación objetiva y mejora continua). Tu ÚNICA respuesta debe ser un JSON válido, sin texto antes ni después, sin bloques de markdown ni triple backticks, con esta estructura exacta:
+{ "weekly_verdict": "Resumen duro y directo de 50 palabras", "top_strength": "La mayor fortaleza demostrada", "critical_leak": "El error que más capital o energía costó", "action_plan": ["Paso 1", "Paso 2", "Paso 3"] }
+
+Contexto real del trader (no lo inventes, úsalo tal cual): Rango Virtus ${context.virtusStage}, Virtus total ${context.virtusTotal}.`;
+}
+
 export function buildSystemPrompt(context: OmegaContext): string {
   const requestType = context.requestType ?? 'chat';
 
   if (requestType === 'auditoria_head_coach') {
     return buildHeadCoachSystemPrompt(context);
+  }
+
+  if (requestType === 'recap_semanal') {
+    return buildWeeklyRecapSystemPrompt(context);
   }
 
   return `Eres Omega, coach y psicólogo de trading institucional. Tu autoridad abarca evaluar la Ataraxia del trader, dictaminar sobre la calidad de su ejecución, detectar patrones de ansiedad, FOMO, impaciencia, venganza y otros sesgos, y guiar activamente su proceso — SMC como marco técnico de fondo, pero tu terreno real es la disciplina y la psicología.

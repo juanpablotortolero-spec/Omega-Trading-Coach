@@ -2624,3 +2624,54 @@ export async function replaceJournalFundingAccounts(
   );
   if (insertError) throw insertError;
 }
+
+// ---------------------------------------------------------------------------
+// Recap Semanal — Omega Coach
+// ---------------------------------------------------------------------------
+
+export type WeeklyOmegaAuditSummary = {
+  gameState: 'A' | 'B' | 'C';
+  strengths: { behavior: string; hypothesis: string; fix: string }[];
+  weaknesses: { behavior: string; hypothesis: string; fix: string }[];
+};
+
+/** Auditorías del Head Coach de la semana — de ahí sale la distribución de Juego A/B/C y las fugas repetidas. */
+export async function getOmegaAuditsForWeek(
+  userId: string,
+  weekStart: string,
+  weekEnd: string,
+): Promise<WeeklyOmegaAuditSummary[]> {
+  const { data, error } = await supabase
+    .from('omega_audits')
+    .select('game_state, strengths, weaknesses')
+    .eq('user_id', userId)
+    .gte('audit_date', weekStart)
+    .lte('audit_date', weekEnd);
+
+  if (error) throw error;
+  return (data ?? []).map((row) => ({
+    gameState: row.game_state,
+    strengths: row.strengths ?? [],
+    weaknesses: row.weaknesses ?? [],
+  }));
+}
+
+export type WeeklyVirtusAiEvent = { points: number; reason: string };
+
+/** Eventos reales de XP (con timestamp real) de la semana — de ahí salen misiones completadas + XP ganada. */
+export async function getVirtusAiEventsForWeek(
+  userId: string,
+  weekStart: string,
+  weekEnd: string,
+): Promise<WeeklyVirtusAiEvent[]> {
+  const dayAfterWeekEnd = localIsoDate(new Date(new Date(`${weekEnd}T00:00:00`).getTime() + 24 * 60 * 60 * 1000));
+  const { data, error } = await supabase
+    .from('virtus_ai_events')
+    .select('points, reason')
+    .eq('user_id', userId)
+    .gte('created_at', `${weekStart}T00:00:00`)
+    .lt('created_at', `${dayAfterWeekEnd}T00:00:00`);
+
+  if (error) throw error;
+  return (data ?? []) as WeeklyVirtusAiEvent[];
+}

@@ -86,22 +86,23 @@ Deno.serve(async (req) => {
     // deno-lint-ignore no-explicit-any
     const conversation: any[] = inMessages.map((m) => ({ role: m.role, content: m.content }));
 
-    // El Head Coach (OmegaDashboard) exige que la ÚNICA respuesta sea un
-    // JSON puro — si le dejamos tools disponibles, el modelo podría desviarse
-    // a un tool_use en vez de texto. Se omiten del todo para esta llamada.
+    // El Head Coach y el Recap Semanal (OmegaDashboard) exigen que la ÚNICA
+    // respuesta sea un JSON puro — si les dejamos tools disponibles, el
+    // modelo podría desviarse a un tool_use en vez de texto. Se omiten del
+    // todo para estas dos llamadas.
     const isHeadCoach = context.requestType === 'auditoria_head_coach';
+    const isJsonOnlyMode = isHeadCoach || context.requestType === 'recap_semanal';
 
     let finalText = '';
     for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration += 1) {
       const response = await anthropic.messages.create({
         model: MODEL,
-        // El Head Coach devuelve un JSON con varios arrays (strengths,
-        // weaknesses, daily_missions) más texto largo en cada campo — con
-        // digests reales (Manual Operativo detallado) 2048 no alcanza y la
+        // Estos JSON traen varios arrays/campos largos — con digests reales
+        // (Manual Operativo detallado, semana completa) 2048 no alcanza y la
         // respuesta se corta a mitad del JSON, rompiendo el parseo.
-        max_tokens: isHeadCoach ? 4096 : 2048,
+        max_tokens: isJsonOnlyMode ? 4096 : 2048,
         system: buildSystemPrompt(context),
-        ...(isHeadCoach ? {} : { tools: OMEGA_TOOLS }),
+        ...(isJsonOnlyMode ? {} : { tools: OMEGA_TOOLS }),
         messages: conversation,
       });
 
@@ -189,6 +190,29 @@ Deno.serve(async (req) => {
       }
 
       finalText = JSON.stringify(normalized);
+    }
+
+    // El Recap Semanal es efímero — se parsea/normaliza igual que el Head
+    // Coach, pero no se persiste en ninguna tabla (no se pidió historial).
+    if (context.requestType === 'recap_semanal') {
+      // deno-lint-ignore no-explicit-any
+      let parsed: any;
+      try {
+        const cleaned = finalText.trim().replace(/^```(?:json)?\s*|\s*```$/g, '');
+        parsed = JSON.parse(cleaned);
+      } catch {
+        return new Response(JSON.stringify({ ok: false, error: 'Omega no devolvió un JSON válido.' }), {
+          status: 502,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      finalText = JSON.stringify({
+        weekly_verdict: String(parsed.weekly_verdict ?? ''),
+        top_strength: String(parsed.top_strength ?? ''),
+        critical_leak: String(parsed.critical_leak ?? ''),
+        action_plan: Array.isArray(parsed.action_plan) ? parsed.action_plan.map((step: unknown) => String(step)) : [],
+      });
     }
 
     return new Response(JSON.stringify({ ok: true, reply: finalText, effects }), {
