@@ -98,6 +98,62 @@ function todayIso() {
 
 const NEWS_FILTER_STORAGE_KEY = 'pat_news_filter';
 
+// ---------------------------------------------------------------------------
+// Auto-guardado de borrador — red de seguridad contra la pérdida de estado de
+// React cuando el navegador descarta/suspende esta pestaña en segundo plano
+// (no hay ningún listener de visibilitychange/focus en el código que fuerce
+// un reload; es el propio navegador liberando memoria). Se persiste bajo una
+// clave por fecha para no mezclar el borrador de un día con el de otro, y
+// solo mientras la entrada no esté sellada del todo (una vez sellada, ya es
+// inmutable y siempre se puede releer de Supabase — no hay nada que proteger).
+// ---------------------------------------------------------------------------
+type JournalDraft = {
+  entry: JournalEntryFull;
+  operations: OperationItem[];
+  selectedFundingAccountIds: string[];
+};
+
+function journalDraftKey(date: string): string {
+  return `omega_journal_draft_${date}`;
+}
+
+function loadJournalDraft(date: string): JournalDraft | null {
+  try {
+    const raw = localStorage.getItem(journalDraftKey(date));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || !parsed.entry) return null;
+    return {
+      entry: parsed.entry as JournalEntryFull,
+      operations: Array.isArray(parsed.operations) ? (parsed.operations as OperationItem[]) : [],
+      selectedFundingAccountIds: Array.isArray(parsed.selectedFundingAccountIds)
+        ? (parsed.selectedFundingAccountIds as string[])
+        : [],
+    };
+  } catch {
+    // Borrador corrupto o localStorage no disponible (modo privado, cuota
+    // llena) — se ignora y se sigue con lo que ya se cargó de Supabase.
+    return null;
+  }
+}
+
+function saveJournalDraft(date: string, draft: JournalDraft): void {
+  try {
+    localStorage.setItem(journalDraftKey(date), JSON.stringify(draft));
+  } catch {
+    // El auto-guardado es una capa extra, no debe romper el formulario si
+    // localStorage falla (modo privado, cuota llena, etc.).
+  }
+}
+
+function clearJournalDraft(date: string): void {
+  try {
+    localStorage.removeItem(journalDraftKey(date));
+  } catch {
+    // Nada que hacer si localStorage no está disponible.
+  }
+}
+
 function loadStoredNewsFilter(): { hiddenImpacts: string[]; hiddenCurrencies: string[] } {
   try {
     const raw = localStorage.getItem(NEWS_FILTER_STORAGE_KEY);
@@ -244,25 +300,50 @@ function JournalEntry() {
           computeDisciplineTimeline(priorEntries, priorOpsByDate, tradingPlan?.max_trades_per_session ?? null),
         );
 
+        let opsToUse: OperationItem[] = [];
+        let fundingIdsToUse: string[] = [];
+
         if (resolvedEntry.id) {
           const [ops, linkedAccountIds] = await Promise.all([
             getOperations(resolvedEntry.id),
             getJournalFundingAccountIds(resolvedEntry.id),
           ]);
           if (cancelled) return;
-          setOperations(ops);
-          setSelectedFundingAccountIds(linkedAccountIds);
+          opsToUse = ops;
+          fundingIdsToUse = linkedAccountIds;
           // Older entries saved before the Fase 2 gate existed have operations
           // but no explicit answer — infer it so the gate reflects real data.
           if (resolvedEntry.custom_fields.took_trade === null && ops.length > 0) {
             resolvedEntry.custom_fields.took_trade = true;
           }
-        } else {
-          setOperations([]);
-          setSelectedFundingAccountIds([]);
         }
 
-        setEntry(resolvedEntry);
+        // Recuperación de borrador — si el navegador descartó la pestaña a
+        // mitad de la edición, el borrador local tiene ediciones más
+        // recientes que lo que ya está en Supabase. Solo se usa mientras la
+        // entrada no esté sellada del todo (una vez sellada es inmutable).
+        // `id`/`entry_date` siempre quedan con el valor real de Supabase,
+        // nunca con el del borrador, para no desincronizar a qué fila apunta
+        // cada guardado posterior.
+        let entryToUse = resolvedEntry;
+        if (!resolvedEntry.custom_fields.sealed_at) {
+          const draft = loadJournalDraft(targetDate);
+          if (draft) {
+            entryToUse = {
+              ...resolvedEntry,
+              ...draft.entry,
+              id: resolvedEntry.id,
+              entry_date: resolvedEntry.entry_date,
+              custom_fields: { ...resolvedEntry.custom_fields, ...draft.entry.custom_fields },
+            };
+            opsToUse = draft.operations;
+            fundingIdsToUse = draft.selectedFundingAccountIds;
+          }
+        }
+
+        setOperations(opsToUse);
+        setSelectedFundingAccountIds(fundingIdsToUse);
+        setEntry(entryToUse);
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'No se pudo cargar el journal.');
       } finally {
@@ -276,6 +357,16 @@ function JournalEntry() {
       cancelled = true;
     };
   }, [user, targetDate]);
+
+  // Auto-guardado continuo del borrador — corre en cada cambio de lo que el
+  // trader ya escribió/seleccionó. `loading` evita pisar un borrador real con
+  // el estado vacío/por-defecto que existe un instante antes de que la carga
+  // de arriba termine de reconciliarlo; `sealed_at` evita seguir escribiendo
+  // sobre una entrada ya inmutable (no hay nada más que proteger ahí).
+  useEffect(() => {
+    if (loading || entry.custom_fields.sealed_at) return;
+    saveJournalDraft(targetDate, { entry, operations, selectedFundingAccountIds });
+  }, [entry, operations, selectedFundingAccountIds, targetDate, loading]);
 
   useEffect(() => {
     let cancelled = false;
@@ -589,6 +680,13 @@ function JournalEntry() {
       setSavedAt(Date.now());
       setShowSealedSummary(true);
       bump();
+
+      // El borrador local solo se descarta acá — justo después de que todo
+      // lo de arriba (upsert, operaciones, Virtus, misiones) ya se guardó
+      // con éxito en Supabase. Si algo de eso hubiera fallado, habríamos
+      // caído al catch de abajo sin llegar a esta línea, y el borrador sigue
+      // intacto para reintentar.
+      clearJournalDraft(entryToSave.entry_date);
 
       // Auditoría automática de Omega — el sello del journal (lo crítico) ya
       // terminó arriba; esto corre aparte, sin bloquear ni poder invalidar lo
