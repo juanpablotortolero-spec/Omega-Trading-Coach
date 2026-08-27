@@ -24,7 +24,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     const { data: subscription } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      setSession(nextSession);
+      // supabase-js escucha visibilitychange/focus por su cuenta (fuera de
+      // este código) y dispara TOKEN_REFRESHED cada vez que la pestaña
+      // recupera el foco, con un objeto `session` nuevo aunque sea el MISMO
+      // usuario. Si lo aplicáramos siempre, cada refoco crearía una
+      // referencia nueva de `user` → cascada de re-renders y refetch en
+      // cada useEffect de la app que depende de `user` (JournalEntry,
+      // Dashboard, MainLayout...), que es justo el "parpadeo" reportado. El
+      // cliente de Supabase ya usa el token refrescado para sus propias
+      // llamadas sin que React necesite enterarse — solo actualizamos
+      // estado cuando el usuario real cambia (login, logout, otra cuenta).
+      setSession((current) => (current?.user?.id === nextSession?.user?.id ? current : nextSession));
     });
 
     return () => subscription.subscription.unsubscribe();
