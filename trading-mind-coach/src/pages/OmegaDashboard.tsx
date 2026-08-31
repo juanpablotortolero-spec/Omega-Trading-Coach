@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import BriefingHistoryCalendar from '../components/BriefingHistoryCalendar';
 import BriefingPreSesion from '../components/BriefingPreSesion';
+import MissionCard from '../components/MissionCard';
 import MonthlyCloseModal from '../components/MonthlyCloseModal';
 import OmegaMark from '../components/OmegaMark';
 import PsychoProfileCard from '../components/PsychoProfileCard';
+import RiskManagerPanel from '../components/RiskManagerPanel';
 import TendlerGameMeter from '../components/TendlerGameMeter';
 import WeeklyRecapModal from '../components/WeeklyRecapModal';
 import { useAuth } from '../contexts/AuthContext';
@@ -13,13 +15,16 @@ import type { HeadCoachAudit, MonthlyCloseResult, WeeklyRecapResult } from '../h
 import {
   acknowledgeBriefing,
   getAiMissions,
+  getFundingAccountsWithTrend,
   getJournalEntryByDate,
   getLatestGoalProgressReasons,
   getTodayBriefingAckStatus,
   getTodayOmegaAudit,
   getTodayVirtusEventReasons,
   getTradingPlan,
+  isMissionActive,
   type AiMission,
+  type FundingAccountTrend,
   type GoalItem,
   type VirtusEventReason,
 } from '../lib/api';
@@ -91,6 +96,8 @@ function OmegaDashboard() {
     positive: [],
     negative: [],
   });
+
+  const [riskAccounts, setRiskAccounts] = useState<FundingAccountTrend[]>([]);
 
   useEffect(() => {
     if (!user) return;
@@ -165,6 +172,20 @@ function OmegaDashboard() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+
+    getFundingAccountsWithTrend(user.id).then((accounts) => {
+      if (!cancelled) setRiskAccounts(accounts);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, version]);
 
   // Se refresca cada vez que un pedido a Omega termina (generar el briefing
   // incluido) — es la única forma de saber, sin acoplar este componente a
@@ -251,7 +272,7 @@ function OmegaDashboard() {
     ? `${audit.manual_audit.issue_detected ? `${audit.manual_audit.issue_detected} ` : ''}${audit.manual_audit.suggested_rule}`.trim()
     : '';
 
-  const incompleteMissions = aiMissions.filter((mission) => !mission.completed);
+  const incompleteMissions = aiMissions.filter((mission) => !mission.completed && isMissionActive(mission));
   const namedGoals = goals.filter((goal) => goal.text.trim().length > 0);
   const automaticGoals = namedGoals.filter((goal) => goal.type === 'automatic');
 
@@ -370,6 +391,8 @@ function OmegaDashboard() {
               </div>
             </div>
           </section>
+
+          <RiskManagerPanel accounts={riskAccounts} />
         </div>
       )}
 
@@ -421,20 +444,7 @@ function OmegaDashboard() {
             ) : (
               <div className="omega-mission-list">
                 {incompleteMissions.map((mission) => (
-                  <div key={mission.id} className="omega-mission-card">
-                    <div className="omega-mission-copy">
-                      <strong>{mission.title}</strong>
-                      <p className="hint-text">{mission.description}</p>
-                      <div className="omega-mission-meta">
-                        <span className="nav-soon">{mission.frequency}</span>
-                        <span className="hint-text">+{mission.reward_xp} XP</span>
-                      </div>
-                      <div className="gauge-wrap omega-mission-progress">
-                        <span className="gauge-fill" style={{ width: `${mission.progress_pct}%` }} />
-                      </div>
-                      <p className="hint-text">Omega verifica tu progreso real: {mission.progress_pct}%</p>
-                    </div>
-                  </div>
+                  <MissionCard key={mission.id} mission={mission} />
                 ))}
               </div>
             )}

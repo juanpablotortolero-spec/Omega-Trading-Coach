@@ -2698,6 +2698,17 @@ textarea {
   accent-color: var(--accent-gold);
 }
 
+.funding-account-checklist.compact {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.funding-account-checklist.compact .funding-account-check-row {
+  padding: 5px 9px;
+  font-size: 0.82rem;
+}
+
 .funding-payout-row {
   display: flex;
   align-items: center;
@@ -5660,6 +5671,44 @@ textarea {
   align-items: center;
 }
 
+.mission-reflection-input {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mission-reflection-input textarea {
+  font: inherit;
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.065);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  padding: 0.7rem 0.85rem;
+  outline: none;
+  resize: vertical;
+  width: 100%;
+  min-height: 70px;
+}
+
+.mission-reflection-input textarea:focus {
+  border-color: rgba(201, 166, 107, 0.55);
+  box-shadow: 0 0 0 3px rgba(201, 166, 107, 0.14);
+}
+
+.mission-reflection-answer {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(201, 166, 107, 0.3);
+  background: rgba(201, 166, 107, 0.06);
+}
+
+.mission-reflection-answer p {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+}
+
 .omega-hq {
   display: flex;
   flex-direction: column;
@@ -6162,6 +6211,43 @@ h3.omega-section-title,
 }
 
 .virtus-reasons-points.negative {
+  color: var(--trade-bearish);
+}
+
+.risk-account-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.risk-account-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.risk-account-row.at-risk {
+  border-color: rgba(139, 58, 54, 0.5);
+  background: rgba(139, 58, 54, 0.08);
+}
+
+.risk-account-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.risk-account-pct {
+  font-family: 'Cinzel', serif;
+  font-weight: 700;
+  color: var(--accent-gold);
+}
+
+.risk-account-pct.at-risk {
   color: var(--trade-bearish);
 }
 

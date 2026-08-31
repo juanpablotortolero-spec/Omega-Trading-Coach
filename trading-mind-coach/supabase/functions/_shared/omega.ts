@@ -42,6 +42,13 @@ export type OmegaContext = {
    */
   activeMissions?: { id: string; title: string; description: string; progressPct: number }[];
   /**
+   * Últimas respuestas de reflexión que el trader ya escribió en misiones de
+   * autorreflexión (ver submitMissionReflection) — memoria conductual real:
+   * Omega las lee y decide, con update_mission_progress, si ameritan avance.
+   * El trader nunca se autocompleta por escribir la respuesta.
+   */
+  missionReflections?: { title: string; answer: string; answeredAt: string }[];
+  /**
    * El último veredicto guardado ANTES de esta sesión (went_well/went_wrong)
    * — solo se pasa en auditoría post-sesión real. Es la única forma de que
    * Omega pueda decidir si el trader corrigió una debilidad señalada o
@@ -49,10 +56,12 @@ export type OmegaContext = {
    */
   previousVerdict?: { wentWell: string[]; wentWrong: string[] };
   /**
-   * Cuentas de fondeo reales asociadas al journal de esta sesión (ver
-   * journal_funding_accounts) — `dangerPct` ya viene calculado por el hook
-   * con la MISMA fórmula que el indicador rojo de FundingAccountCard, así
-   * Omega interpreta el riesgo real en vez de re-derivarlo o inventarlo.
+   * Cuentas de fondeo reales del trader — en auditoría de sesión son las
+   * asociadas al journal de ese día (journal_funding_accounts); en el
+   * briefing pre-sesión son TODAS las cuentas activas (todavía no hay
+   * journal). `dangerPct` ya viene calculado por el hook con la MISMA
+   * fórmula en ambos casos, así Omega interpreta el riesgo real en vez de
+   * re-derivarlo o inventarlo.
    */
   fundingAccounts?: {
     accountName: string;
@@ -113,6 +122,13 @@ function formatActiveMissionsBlock(context: OmegaContext): string {
   if (!context.activeMissions || context.activeMissions.length === 0) return '';
   return `\nMisiones activas asignadas por vos, todavía sin completar (revisa si la sesión trae evidencia real de avance):\n${context.activeMissions
     .map((mission) => `- id "${mission.id}": "${mission.title}" (${mission.description}) — ${mission.progressPct}% actual`)
+    .join('\n')}\n`;
+}
+
+function formatMissionReflectionsBlock(context: OmegaContext): string {
+  if (!context.missionReflections || context.missionReflections.length === 0) return '';
+  return `\nRespuestas de reflexión que el trader ya escribió en misiones de autorreflexión (memoria conductual real — evaluá si alguna amerita mover el progreso de la misión correspondiente con update_mission_progress, o si te sirve para cruzar un patrón repetido en tu diagnóstico de hoy):\n${context.missionReflections
+    .map((r) => `- "${r.title}" (${r.answeredAt}): "${r.answer}"`)
     .join('\n')}\n`;
 }
 
@@ -214,7 +230,7 @@ Tienes acceso a 8 herramientas. Úsalas con criterio, no en cada respuesta — y
 - update_virtus_and_xp: para premiar ejecución mecánica impecable o castigar indisciplina real (romper el plan, exceder el riesgo, operar fuera de ventana, venganza). No la uses por charla casual.
 - validate_positive_streak: cuando identifiques una racha real de disciplina sostenida (varios días o sesiones seguidas cumpliendo el plan) — reconocimiento explícito, distinto de un premio puntual.
 - trigger_ui_alert: solo para conductas destructivas que requieren interrumpir al trader AHORA (riesgo de venganza, ruptura repetida del plan) — usa 'warning' o 'critical' para eso; 'info' solo para un aviso menor no urgente.
-- assign_ai_mission: misión concreta y medible ligada a un patrón real — puede ser diaria, semanal o única.
+- assign_ai_mission: misión concreta y medible ligada a un patrón real — puede ser diaria, semanal o única. Toda misión creada expira a las 24hs si no se completa (rotación automática, no hace falta que lo gestiones vos). Marca requires_reflection en true SOLO cuando la misión es de autorreflexión pura (ej. identificar detonantes de ansiedad pre-sesión, escribir qué gatilla una entrada por venganza) — eso le habilita al trader un espacio de texto para responder directamente en la tarjeta; para misiones de acción concreta (ej. "reduce tu lotaje", "espera el barrido antes de entrar") dejalo en false.
 - update_goal_progress: solo para las metas listadas como "automáticas" abajo (las 'manual' las controla el trader con su propio slider, nunca las toques) — cuando haya evidencia real de avance o retroceso hacia una de esas metas en esta sesión o conversación. Usa el id exacto listado. Muévete de a poco (delta modesto, normalmente entre 3 y 15 puntos; negativo si hubo un retroceso real) — una meta se construye de a poco, nunca de un salto a 100%. No la uses sin una razón concreta y verificable. IMPORTANTE: cuando la uses, mencioná también en tu respuesta de texto qué hizo el trader que la impulsó (o qué le falta concretamente) — nunca la muevas en silencio sin que el trader se entere por qué cambió.
 - update_mission_progress: revisa las "misiones activas" listadas abajo contra la evidencia real de esta sesión o conversación — nunca le preguntes al trader si la cumplió, decidilo vos con los datos reales (journal, operaciones, lo que te cuenta). Si hay evidencia de avance total o parcial, usa esta tool con un delta_pct (puede ser 100 de una vez si la evidencia es concluyente y binaria, o modesto si es progreso parcial). El trader ya NO puede marcar sus propias misiones como completadas — esta tool es el único camino.
 - credit_psychological_growth: SOLO en auditoría post-sesión real, y SOLO si el contexto trae un "último veredicto guardado" para comparar. Usa 'correccion' si la sesión de HOY muestra evidencia concreta de que el trader corrigió activamente algo de "Se hizo mal" de ese veredicto anterior; usa 'fortaleza' si sostuvo algo de "Se hizo bien". No la uses sin ese veredicto previo como referencia, y no la uses por una mejora genérica sin conexión clara a algo ya señalado antes — y mencionalo explícitamente en tu respuesta, nunca en silencio.
@@ -225,7 +241,7 @@ Contexto actual del trader (real, de su cuenta):
 - Rango Virtus: ${context.virtusStage}
 - Puntos Virtus totales: ${context.virtusTotal}
 - Ataraxia (ejecución mecánica y paz mental) hoy: ${context.ataraxiaPct !== null ? `${context.ataraxiaPct}%` : 'sin datos suficientes todavía hoy'}
-${formatAutomaticGoalsBlock(context)}${formatActiveMissionsBlock(context)}${formatPreviousVerdictBlock(context)}${formatFundingAccountsBlock(context)}${context.sessionDigest ? `\n${context.sessionDigest}\n` : ''}
+${formatAutomaticGoalsBlock(context)}${formatActiveMissionsBlock(context)}${formatMissionReflectionsBlock(context)}${formatPreviousVerdictBlock(context)}${formatFundingAccountsBlock(context)}${context.sessionDigest ? `\n${context.sessionDigest}\n` : ''}
 ${context.screenshotUrls && context.screenshotUrls.length > 0 ? `\nEste mensaje incluye ${context.screenshotUrls.length} captura(s) real(es) del journal, como imágenes adjuntas. Analízalas técnicamente (estructura SMC/ICT visible: barridos de liquidez, order blocks, FVGs, justificación real de la entrada) y cita explícitamente lo que ves en cada una — no las ignores ni te limites al texto del digest.\n` : ''}
 ${REQUEST_TYPE_INSTRUCTIONS[requestType]}`;
 }
@@ -306,6 +322,10 @@ export const OMEGA_TOOLS = [
           type: 'string',
           enum: ['diaria', 'semanal', 'unica'],
           description: 'Con qué frecuencia se repite. Si no aplica, usar "unica".',
+        },
+        requires_reflection: {
+          type: 'boolean',
+          description: 'true solo si es una misión de autorreflexión pura que necesita que el trader escriba una respuesta en texto. Por defecto false.',
         },
       },
       required: ['title', 'description', 'reward_xp'],

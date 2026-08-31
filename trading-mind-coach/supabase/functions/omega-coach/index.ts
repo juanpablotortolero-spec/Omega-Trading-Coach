@@ -76,6 +76,22 @@ Deno.serve(async (req) => {
     const adminClient = createClient(supabaseUrl, serviceRoleKey);
     const anthropic = new Anthropic({ apiKey: anthropicKey });
 
+    // Rotación de misiones: soft-expire (no borrado, mantiene la memoria
+    // conductual) de las misiones de assign_ai_mission que llevan más de 24hs
+    // sin completarse. No toca las del Head Coach (llevan audit_date y ya
+    // tienen su propio ciclo diario de borrado-e-inserción, ver más abajo).
+    // Oportunista: corre en cada llamada a Omega, no hay cron en este repo.
+    const expirationCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { error: expireError } = await adminClient
+      .from('ai_missions')
+      .update({ expired_at: new Date().toISOString() })
+      .eq('user_id', user.id)
+      .eq('completed', false)
+      .is('expired_at', null)
+      .is('audit_date', null)
+      .lt('created_at', expirationCutoff);
+    if (expireError) throw expireError;
+
     const effects: Effects = {
       virtusDelta: 0,
       missionsAssigned: [],
@@ -357,6 +373,7 @@ async function runTool(
         description: input.description,
         reward_xp: input.reward_xp,
         frequency: input.frequency ?? 'unica',
+        requires_reflection: Boolean(input.requires_reflection),
       });
       if (error) throw error;
       effects.missionsAssigned.push({ title: input.title, reward_xp: input.reward_xp });

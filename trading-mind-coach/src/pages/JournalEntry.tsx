@@ -6,6 +6,7 @@ import { useRefresh } from '../contexts/RefreshContext';
 import { autoGrow } from '../lib/autoGrow';
 import DatePicker from '../components/DatePicker';
 import {
+  applyOperationsPnlToAccounts,
   computeVirtusEventsV2,
   defaultTemplateSections,
   emotionalStates,
@@ -455,6 +456,21 @@ function JournalEntry() {
     );
   };
 
+  const toggleOperationFundingAccount = (operationId: string, accountId: string) => {
+    setOperations((current) =>
+      current.map((op) =>
+        op.id === operationId
+          ? {
+              ...op,
+              fundingAccountIds: op.fundingAccountIds.includes(accountId)
+                ? op.fundingAccountIds.filter((id) => id !== accountId)
+                : [...op.fundingAccountIds, accountId],
+            }
+          : op,
+      ),
+    );
+  };
+
   const handleFiles = async (files: FileList | File[]) => {
     if (!user) return;
     const remaining = 10 - entry.screenshots.length;
@@ -615,6 +631,7 @@ function JournalEntry() {
       const entryId = await upsertJournalEntryFull(user.id, entryToSave);
       await replaceOperations(user.id, entryId, entry.entry_date, operations);
       await replaceJournalFundingAccounts(user.id, entryId, selectedFundingAccountIds);
+      await applyOperationsPnlToAccounts(user.id, entryId, operations);
       setEntry((current) => ({ ...current, id: entryId, custom_fields: entryToSave.custom_fields }));
       setSavedAt(Date.now());
       bump();
@@ -1325,6 +1342,24 @@ function JournalEntry() {
                     disabled={op.isAutoSynced}
                   />
                 </label>
+
+                {fundingAccounts.length > 0 && (
+                  <div className="pill-field">
+                    <span className="eyebrow">Cuenta(s) de Conexiones (el P&L se aplica al sellar)</span>
+                    <div className="funding-account-checklist compact">
+                      {fundingAccounts.map((account) => (
+                        <label key={account.id} className="funding-account-check-row">
+                          <input
+                            type="checkbox"
+                            checked={op.fundingAccountIds.includes(account.id)}
+                            onChange={() => toggleOperationFundingAccount(op.id, account.id)}
+                          />
+                          <span>{account.accountName}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <div className="pill-field">
                   <span className="eyebrow">Modelo / setup</span>

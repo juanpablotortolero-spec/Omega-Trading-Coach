@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import MissionCard from './MissionCard';
 import MonthCalendar from './MonthCalendar';
 import VirtusIcon, { type VirtusLevel } from './VirtusIcon';
 import VirtusProgressBar from './VirtusProgressBar';
@@ -27,6 +28,7 @@ import {
   getTodaySessionVirtusDelta,
   getTodayStatus,
   getTradingPlan,
+  isMissionActive,
   getVirtusPeak,
   getVirtusTotal,
   getWeekBounds,
@@ -404,7 +406,7 @@ function Dashboard() {
             <h3>Centro de Misiones Activas</h3>
             <span className="omega-assigned-tag">asignadas por Omega</span>
           </div>
-          {aiMissions.length === 0 ? (
+          {aiMissions.filter(isMissionActive).length === 0 ? (
             <div className="empty-state">
               <span className="empty-icon" />
               <h3>Sin misiones activas</h3>
@@ -412,27 +414,11 @@ function Dashboard() {
             </div>
           ) : (
             <div className="omega-mission-list">
-              {[...aiMissions]
+              {aiMissions
+                .filter(isMissionActive)
                 .sort((a, b) => Number(a.completed) - Number(b.completed))
                 .map((mission) => (
-                  <div key={mission.id} className={`omega-mission-card ${mission.completed ? 'completed' : ''}`}>
-                    <div className="omega-mission-copy">
-                      <strong>{mission.title}</strong>
-                      <p className="hint-text">{mission.description}</p>
-                      <div className="omega-mission-meta">
-                        <span className="nav-soon">{mission.frequency}</span>
-                        <span className="hint-text">+{mission.reward_xp} XP</span>
-                      </div>
-                      <div className="gauge-wrap omega-mission-progress">
-                        <span className="gauge-fill" style={{ width: `${mission.progress_pct}%` }} />
-                      </div>
-                      <p className="hint-text">
-                        {mission.completed
-                          ? 'Verificada por Omega — XP acreditado.'
-                          : `Omega verifica tu progreso real: ${mission.progress_pct}%`}
-                      </p>
-                    </div>
-                  </div>
+                  <MissionCard key={mission.id} mission={mission} showCompletedState />
                 ))}
             </div>
           )}

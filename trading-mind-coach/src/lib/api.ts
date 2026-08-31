@@ -1,4 +1,5 @@
 import { localIsoDate, summarizeOperationsByDate } from './calendar';
+import { computeDangerPct } from './risk';
 import { supabase } from './supabaseClient';
 import { currentStage, rankPenaltyMultiplier } from './virtus';
 
@@ -631,6 +632,8 @@ export type OperationItem = {
   brokerSource: string | null;
   isAutoSynced: boolean;
   accountLabel: string | null;
+  /** Cuentas reales de Conexiones vinculadas a esta operación — el P&L se aplica a cada una al sellar Fase 2 (ver applyOperationsPnlToAccounts). */
+  fundingAccountIds: string[];
 };
 
 export function newOperation(): OperationItem {
@@ -656,6 +659,7 @@ export function newOperation(): OperationItem {
     brokerSource: null,
     isAutoSynced: false,
     accountLabel: null,
+    fundingAccountIds: [],
   };
 }
 
@@ -663,7 +667,7 @@ export async function getOperations(journalEntryId: string): Promise<OperationIt
   const { data, error } = await supabase
     .from('operations')
     .select(
-      'id, symbol, direction, model, quality, session, entry_price, stop_loss, take_profit, risk_reward, pnl, outcome, lesson, broke_plan, screenshots, lot_size, entry_time, exit_time, broker_source, is_auto_synced, account_label',
+      'id, symbol, direction, model, quality, session, entry_price, stop_loss, take_profit, risk_reward, pnl, outcome, lesson, broke_plan, screenshots, lot_size, entry_time, exit_time, broker_source, is_auto_synced, account_label, operation_funding_accounts(funding_account_id)',
     )
     .eq('journal_entry_id', journalEntryId)
     .order('created_at', { ascending: true });
@@ -692,6 +696,11 @@ export async function getOperations(journalEntryId: string): Promise<OperationIt
     brokerSource: row.broker_source,
     isAutoSynced: Boolean(row.is_auto_synced),
     accountLabel: row.account_label,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    fundingAccountIds: ((row as any).operation_funding_accounts ?? []).map(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (link: any) => link.funding_account_id as string,
+    ),
   }));
 }
 
@@ -747,8 +756,69 @@ export async function replaceOperations(
     account_label: op.accountLabel,
   }));
 
-  const { error: insertError } = await supabase.from('operations').insert(rows);
+  const { data: inserted, error: insertError } = await supabase.from('operations').insert(rows).select('id');
   if (insertError) throw insertError;
+
+  // El delete de arriba ya se llevó las filas de operation_funding_accounts
+  // por CASCADE — solo hace falta reinsertar los vínculos de las operaciones
+  // que sí tienen cuenta(s) marcada(s).
+  const linkRows = (inserted ?? []).flatMap((row, index) =>
+    validOps[index].fundingAccountIds.map((fundingAccountId) => ({
+      operation_id: row.id as string,
+      funding_account_id: fundingAccountId,
+    })),
+  );
+  if (linkRows.length > 0) {
+    const { error: linkError } = await supabase.from('operation_funding_accounts').insert(linkRows);
+    if (linkError) throw linkError;
+  }
+}
+
+/**
+ * Suma el P&L del día por cuenta vinculada y actualiza el balance real de
+ * cada una — reusa updateFundingAccountBalance (mismo mecanismo que la
+ * edición manual en Conexiones) y deja un registro en
+ * funding_account_balance_events para que el Gestor de Riesgo pueda mostrar
+ * tendencia. Si la misma operación está vinculada a varias cuentas, se le
+ * aplica el mismo P&L registrado a cada una.
+ */
+export async function applyOperationsPnlToAccounts(
+  userId: string,
+  journalEntryId: string,
+  operations: OperationItem[],
+): Promise<void> {
+  const pnlByAccount = new Map<string, number>();
+  for (const op of operations) {
+    const pnl = toNumberOrNull(op.pnl);
+    if (pnl === null || op.fundingAccountIds.length === 0) continue;
+    for (const accountId of op.fundingAccountIds) {
+      pnlByAccount.set(accountId, (pnlByAccount.get(accountId) ?? 0) + pnl);
+    }
+  }
+  if (pnlByAccount.size === 0) return;
+
+  const accountIds = Array.from(pnlByAccount.keys());
+  const { data: accounts, error } = await supabase
+    .from('funding_accounts')
+    .select('id, current_balance')
+    .in('id', accountIds);
+  if (error) throw error;
+
+  for (const account of accounts ?? []) {
+    const delta = pnlByAccount.get(account.id) ?? 0;
+    if (delta === 0) continue;
+    const balanceAfter = account.current_balance + delta;
+    await updateFundingAccountBalance(account.id, balanceAfter);
+    const { error: eventError } = await supabase.from('funding_account_balance_events').insert({
+      funding_account_id: account.id,
+      user_id: userId,
+      delta,
+      balance_after: balanceAfter,
+      reason: 'journal_pnl_sync',
+      journal_entry_id: journalEntryId,
+    });
+    if (eventError) throw eventError;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -2017,17 +2087,70 @@ export type AiMission = {
   progress_pct: number;
   frequency: AiMissionFrequency;
   created_at: string;
+  requires_reflection: boolean;
+  reflection_answer: string | null;
+  reflection_answered_at: string | null;
+  expired_at: string | null;
 };
 
+/**
+ * Trae TODAS las misiones (activas, completadas, expiradas) — el llamador
+ * decide qué mostrar. Se filtra por `!expired_at` del lado del cliente para
+ * el "Centro de Misiones Activas" — cubre el caso en que el trader no
+ * disparó ninguna llamada a Omega en las últimas 24h y el servidor todavía
+ * no corrió el barrido de expiración (ver omega-coach/index.ts).
+ */
 export async function getAiMissions(userId: string): Promise<AiMission[]> {
   const { data, error } = await supabase
     .from('ai_missions')
-    .select('id, title, description, reward_xp, completed, progress_pct, frequency, created_at')
+    .select(
+      'id, title, description, reward_xp, completed, progress_pct, frequency, created_at, requires_reflection, reflection_answer, reflection_answered_at, expired_at',
+    )
     .eq('user_id', userId)
     .order('created_at', { ascending: false });
 
   if (error) throw error;
   return (data ?? []) as AiMission[];
+}
+
+/** true si la misión sigue vigente para mostrarse en el Centro de Misiones Activas. */
+export function isMissionActive(mission: AiMission): boolean {
+  return !mission.expired_at;
+}
+
+/**
+ * Única escritura permitida al trader sobre ai_missions: su propia respuesta
+ * de reflexión, sin XP ni progreso asociado (nada que hacer trampa) — mismo
+ * patrón que acknowledgeBriefing. Omega decide después, con
+ * update_mission_progress, si esa respuesta ameritó avance real.
+ */
+export async function submitMissionReflection(userId: string, missionId: string, answer: string): Promise<void> {
+  const { error } = await supabase
+    .from('ai_missions')
+    .update({ reflection_answer: answer, reflection_answered_at: new Date().toISOString() })
+    .eq('id', missionId)
+    .eq('user_id', userId);
+  if (error) throw error;
+}
+
+/** Últimas respuestas de reflexión del trader — memoria conductual que Omega recibe en el prompt (ver formatMissionReflectionsBlock). */
+export async function getRecentMissionReflections(
+  userId: string,
+): Promise<{ title: string; answer: string; answeredAt: string }[]> {
+  const { data, error } = await supabase
+    .from('ai_missions')
+    .select('title, reflection_answer, reflection_answered_at')
+    .eq('user_id', userId)
+    .not('reflection_answer', 'is', null)
+    .order('reflection_answered_at', { ascending: false })
+    .limit(10);
+
+  if (error) throw error;
+  return (data ?? []).map((row) => ({
+    title: row.title,
+    answer: row.reflection_answer as string,
+    answeredAt: row.reflection_answered_at as string,
+  }));
 }
 
 /** Fecha (YYYY-MM-DD) del journal más reciente del usuario, sellado o no. */
@@ -2778,6 +2901,51 @@ export async function getFundingAccountsForJournalEntry(journalEntryId: string):
   if (error) throw error;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return (data ?? []).filter((row: any) => row.funding_accounts).map((row: any) => mapFundingAccountRow(row.funding_accounts, 0));
+}
+
+export type FundingAccountTrend = FundingAccount & {
+  dangerPct: number;
+  /** Delta de balance de los últimos `windowDays` (null si no hay eventos suficientes en esa ventana todavía). */
+  recentDeltaPct: number | null;
+};
+
+/**
+ * Cuentas activas + su % de riesgo (misma fórmula que useOmegaAgent) y una
+ * tendencia simple a partir de funding_account_balance_events — para el
+ * panel de Gestor de Riesgo del Tab Estado de Omega Coach.
+ */
+export async function getFundingAccountsWithTrend(userId: string, windowDays = 7): Promise<FundingAccountTrend[]> {
+  const accounts = (await getFundingAccounts(userId)).filter((account) => account.status === 'active');
+  if (accounts.length === 0) return [];
+
+  const since = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000).toISOString();
+  const { data: events, error } = await supabase
+    .from('funding_account_balance_events')
+    .select('funding_account_id, delta, created_at')
+    .eq('user_id', userId)
+    .in(
+      'funding_account_id',
+      accounts.map((account) => account.id),
+    )
+    .gte('created_at', since);
+  if (error) throw error;
+
+  const deltaByAccount = new Map<string, number>();
+  (events ?? []).forEach((event) => {
+    deltaByAccount.set(event.funding_account_id, (deltaByAccount.get(event.funding_account_id) ?? 0) + event.delta);
+  });
+
+  return accounts.map((account) => {
+    const recentDelta = deltaByAccount.get(account.id);
+    return {
+      ...account,
+      dangerPct: computeDangerPct(account.startingBalance, account.currentBalance, account.drawdownLimit),
+      recentDeltaPct:
+        recentDelta !== undefined && account.startingBalance !== 0
+          ? Math.round((recentDelta / account.startingBalance) * 1000) / 10
+          : null,
+    };
+  });
 }
 
 /** Reemplaza las cuentas asociadas a un journal — mismo patrón delete+insert que replaceOperations. */

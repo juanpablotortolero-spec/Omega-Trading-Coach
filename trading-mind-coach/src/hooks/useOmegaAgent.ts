@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabaseClient';
 import {
   getAiMissions,
   getDisciplineInputsByDate,
+  getFundingAccounts,
   getFundingAccountsForJournalEntry,
   getJournalEntryByDate,
   getLatestJournalEntryDate,
@@ -12,6 +13,7 @@ import {
   getOmegaAuditsForWeek,
   getOperations,
   getOperationsInRange,
+  getRecentMissionReflections,
   getTradingPlan,
   getVirtusAiEventsForWeek,
   getVirtusDelta,
@@ -28,6 +30,7 @@ import {
 import { localIsoDate } from '../lib/calendar';
 import { computeDisciplineScore, computeDisciplineTimeline, type DisciplineOperationInput } from '../lib/disciplineScore';
 import { getEventsForDate, getWeeklyEconomicEvents, isWithinFetchedWeek, type EconomicEvent } from '../lib/economicCalendar';
+import { computeDangerPct } from '../lib/risk';
 import { currentStage } from '../lib/virtus';
 
 export type OmegaMessage = { role: 'user' | 'assistant'; content: string };
@@ -159,27 +162,39 @@ async function getSessionData(
  * indicador rojo de `FundingAccountCard`) para que Omega no tenga que
  * recalcular ni inventar ese número.
  */
-async function getFundingRiskContext(journalEntryId: string | null): Promise<
-  { accountName: string; currentBalance: number; startingBalance: number; drawdownLimit: number; dailyLossLimit: number | null; dangerPct: number }[]
-> {
-  if (!journalEntryId) return [];
-  const accounts: FundingAccount[] = await getFundingAccountsForJournalEntry(journalEntryId);
+type FundingRiskContext = {
+  accountName: string;
+  currentBalance: number;
+  startingBalance: number;
+  drawdownLimit: number;
+  dailyLossLimit: number | null;
+  dangerPct: number;
+}[];
+
+function toFundingRiskContext(accounts: FundingAccount[]): FundingRiskContext {
   return accounts.map((account) => ({
     accountName: account.accountName,
     currentBalance: account.currentBalance,
     startingBalance: account.startingBalance,
     drawdownLimit: account.drawdownLimit,
     dailyLossLimit: account.dailyLossLimit,
-    dangerPct: Math.round(
-      Math.min(
-        100,
-        Math.max(
-          0,
-          ((account.startingBalance - account.currentBalance) / (account.startingBalance - account.drawdownLimit)) * 100,
-        ),
-      ),
-    ),
+    dangerPct: computeDangerPct(account.startingBalance, account.currentBalance, account.drawdownLimit),
   }));
+}
+
+async function getFundingRiskContext(journalEntryId: string | null): Promise<FundingRiskContext> {
+  if (!journalEntryId) return [];
+  return toFundingRiskContext(await getFundingAccountsForJournalEntry(journalEntryId));
+}
+
+/**
+ * TODAS las cuentas activas del trader (no solo las de un journal puntual) —
+ * usada en el briefing pre-sesión, para que el candado de riesgo pueda
+ * advertir ANTES de que empiece la sesión, no solo en la auditoría posterior.
+ */
+async function getAllFundingRiskContext(userId: string): Promise<FundingRiskContext> {
+  const accounts = await getFundingAccounts(userId);
+  return toFundingRiskContext(accounts.filter((account) => account.status === 'active'));
 }
 
 /** El cruce journal + Manual Operativo que Omega recibe para evaluar una sesión completa. */
@@ -320,23 +335,24 @@ export function useOmegaAgent() {
       setError(null);
 
       try {
-        const [virtusTotal, plan, aiMissions] = await Promise.all([
+        const [virtusTotal, plan, aiMissions, missionReflections] = await Promise.all([
           getVirtusTotal(user.id),
           getTradingPlan(user.id),
           getAiMissions(user.id),
+          getRecentMissionReflections(user.id),
         ]);
         const stage = currentStage(virtusTotal);
         const automaticGoals = (plan?.goals ?? [])
           .filter((goal) => goal.type === 'automatic')
           .map((goal) => ({ id: goal.id, text: goal.text, progressPct: goal.progressPct }));
         const activeMissions = aiMissions
-          .filter((mission) => !mission.completed)
+          .filter((mission) => !mission.completed && !mission.expired_at)
           .map((mission) => ({ id: mission.id, title: mission.title, description: mission.description, progressPct: mission.progress_pct }));
 
         const { data, error: invokeError } = await supabase.functions.invoke('omega-coach', {
           body: {
             messages: nextMessages,
-            context: { virtusStage: stage.level, virtusTotal, automaticGoals, activeMissions, ...contextExtra },
+            context: { virtusStage: stage.level, virtusTotal, automaticGoals, activeMissions, missionReflections, ...contextExtra },
           },
         });
 
@@ -438,10 +454,11 @@ export function useOmegaAgent() {
     setError(null);
 
     try {
-      const [plan, virtusDelta7d, latestVerdict] = await Promise.all([
+      const [plan, virtusDelta7d, latestVerdict, fundingAccounts] = await Promise.all([
         getTradingPlan(user.id),
         getVirtusDelta(user.id, 7),
         getLatestSessionVerdict(user.id),
+        getAllFundingRiskContext(user.id),
       ]);
 
       const today = localIsoDate(new Date());
@@ -463,6 +480,7 @@ export function useOmegaAgent() {
         sessionDigest: digest,
         requestType: 'briefing_pre_sesion',
         sessionDate: today,
+        fundingAccounts,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo generar el briefing.');
