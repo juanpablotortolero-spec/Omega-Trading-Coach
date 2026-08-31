@@ -45,7 +45,7 @@ import {
 import { dateKey, localIsoDate, summarizeOperationsByDate, type DaySummary } from '../lib/calendar';
 import { computeDisciplineTimeline, type DisciplineOperationInput } from '../lib/disciplineScore';
 import { isOnline } from '../lib/presence';
-import { currentStage, stageBadges } from '../lib/virtus';
+import { currentStage } from '../lib/virtus';
 import AtaraxiaBar from './AtaraxiaBar';
 import ProgressInfoModal from './ProgressInfoModal';
 import UserEmblem from './UserEmblem';
@@ -588,23 +588,6 @@ function Dashboard() {
           </div>
           <p className="hint-text">{stage.level}</p>
           <VirtusProgressBar virtusTotal={virtusTotal} todayDelta={todayDelta} peakTotal={peakTotal} />
-          <div className="mastery-row">
-            {stageBadges.map((badge) => (
-              <div
-                key={badge.level}
-                className={`mastery-item ${badge.level === stage.level ? 'current' : ''}`}
-              >
-                <span className="icon-chip">
-                  <VirtusIcon level={badge.level as VirtusLevel} className="icon-chip-svg" />
-                  <span className="badge-tooltip">
-                    <strong>{badge.level}</strong>
-                    <span>{badge.name}</span>
-                  </span>
-                </span>
-                <span className="mastery-item-label">{badge.level}</span>
-              </div>
-            ))}
-          </div>
 
           <div className="ataraxia-quick-view">
             <span className="ataraxia-quick-title">Ataraxia</span>

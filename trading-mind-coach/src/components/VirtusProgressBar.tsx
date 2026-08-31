@@ -24,6 +24,12 @@ function VirtusProgressBar({
   return (
     <div className="xp-bar-block">
       <div className="gauge-wrap xp-gauge-wrap">
+        {todayDelta !== 0 && (
+          <span className={`xp-delta-badge ${todayDelta > 0 ? 'positive' : 'negative'}`}>
+            {todayDelta > 0 ? '▲' : '▼'} {todayDelta > 0 ? '+' : ''}
+            {todayDelta.toLocaleString('es-ES')}
+          </span>
+        )}
         {showPeak && (
           <span
             className="gauge-peak-marker"
@@ -42,12 +48,6 @@ function VirtusProgressBar({
       </div>
       <div className="xp-detail-row">
         <span className="xp-current">{virtusTotal.toLocaleString('es-ES')} XP</span>
-        {todayDelta !== 0 && (
-          <span className={`xp-today-chip ${todayDelta > 0 ? 'positive' : 'negative'}`}>
-            {todayDelta > 0 ? '+' : ''}
-            {todayDelta.toLocaleString('es-ES')} hoy
-          </span>
-        )}
       </div>
     </div>
   );

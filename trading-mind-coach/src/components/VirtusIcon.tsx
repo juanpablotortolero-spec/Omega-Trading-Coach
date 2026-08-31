@@ -1,4 +1,17 @@
+import { useEffect, useState } from 'react';
+
 export type VirtusLevel = 'LOGOS' | 'ETHOS' | 'PRAXIS' | 'KAIROS' | 'OMEGA';
+
+/** Carpeta pública donde van los PNG/WebP finales de cada rango — Vite sirve todo lo de `public/` tal cual. */
+const ASSET_BASE = '/assets/ranks/';
+
+const ASSET_FILE: Record<VirtusLevel, string> = {
+  LOGOS: 'logos.png',
+  ETHOS: 'ethos.png',
+  PRAXIS: 'praxis.png',
+  KAIROS: 'kairos.png',
+  OMEGA: 'omega.png',
+};
 
 const svgProps = {
   viewBox: '0 0 64 64',
@@ -20,10 +33,12 @@ function Medallion() {
 }
 
 /**
- * Line-art insignias for los 5 niveles de maestría — trazos finos, sin
- * rellenos sólidos, per .claude/CLAUDE_INSTRUCTIONS.md sección 3.
+ * Insignias de línea para los 5 niveles de maestría — el arte original de
+ * esta pantalla, ahora usado como fallback: se pinta mientras el PNG real no
+ * exista (o si falla la carga), así nunca se rompe ni queda un ícono en
+ * blanco.
  */
-function VirtusIcon({ level, className }: { level: VirtusLevel; className?: string }) {
+function LineArtIcon({ level, className }: { level: VirtusLevel; className?: string }) {
   switch (level) {
     case 'LOGOS':
       return (
@@ -151,6 +166,36 @@ function VirtusIcon({ level, className }: { level: VirtusLevel; className?: stri
     default:
       return null;
   }
+}
+
+/**
+ * Insignia de rango Virtus — intenta el PNG/WebP real de
+ * `public/assets/ranks/<rango>.png` primero; si no existe todavía (o falla
+ * la carga), cae en el line-art original de esta pantalla, que ya cumple la
+ * misma función y nunca se ve roto. El brillo/resplandor NO vive acá — lo
+ * ponen los contenedores (`.badge-mark`, `.icon-chip`, `.friend-emblem`) via
+ * `box-shadow`/gradiente, así que se conserva igual sin importar cuál de
+ * las dos versiones se esté mostrando.
+ */
+function VirtusIcon({ level, className }: { level: VirtusLevel; className?: string }) {
+  const [imgFailed, setImgFailed] = useState(false);
+
+  useEffect(() => {
+    setImgFailed(false);
+  }, [level]);
+
+  if (imgFailed) {
+    return <LineArtIcon level={level} className={className} />;
+  }
+
+  return (
+    <img
+      src={`${ASSET_BASE}${ASSET_FILE[level]}`}
+      alt={`Rango ${level}`}
+      className={`${className ?? ''} virtus-icon-img`}
+      onError={() => setImgFailed(true)}
+    />
+  );
 }
 
 export default VirtusIcon;
