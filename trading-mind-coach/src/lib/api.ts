@@ -2912,6 +2912,34 @@ export async function getBriefingByDate(userId: string, date: string): Promise<s
 export type VirtusEventReason = { reason: string; points: number };
 
 /**
+ * Traduce las `label` internas (en inglés, tipo enum) que computeVirtusEventsV2
+ * graba en `virtus_events` — nunca estaban pensadas para mostrarse tal cual al
+ * trader, solo como clave estable para agregaciones. El fallback a la label
+ * cruda es deliberado: si aparece una key nueva sin traducir todavía, se ve
+ * rara en vez de desaparecer en silencio (evidencia de que falta agregarla acá).
+ */
+const VIRTUS_EVENT_LABELS: Record<string, string> = {
+  BROKE_PLAN: 'Rompiste tu plan en al menos una operación',
+  PLAN_ADHERENCE: 'Respetaste tu plan en todas las operaciones',
+  RISK_MANAGED: 'Respetaste tu manejo de riesgo',
+  RISK_NOT_RESPECTED: 'No respetaste tu manejo de riesgo',
+  CONSTRUCTIVE_EMOTIONAL_STATE: 'Emociones predominantes constructivas',
+  DESTRUCTIVE_EMOTIONAL_STATE: 'Emociones predominantes destructivas',
+  OPTIMAL_TIME_DELIVERY: 'Operaste dentro de tu ventana horaria',
+  OUTSIDE_TIME_WINDOW: 'Operaste fuera de tu ventana horaria',
+  CORRECT_BIAS: 'Tu bias del día fue correcto',
+  WRONG_BIAS: 'Tu bias del día no fue correcto',
+  VALID_SETUP_EXECUTED: 'El setup ejecutado cumplió los parámetros',
+  INVALID_SETUP_EXECUTED: 'El setup ejecutado no cumplió los parámetros',
+  NARRATIVE_RESPECTED: 'Respetaste tu narrativa pre-sesión',
+  NARRATIVE_NOT_RESPECTED: 'No respetaste tu narrativa pre-sesión',
+  MISSION_EMOTIONAL_STATE: 'Registraste tu estado emocional',
+  MISSION_JOURNAL_COMPLETED: 'Completaste el journal con al menos una operación',
+  MISSION_DIRECTRIZ_DEFINED: 'Definiste tu directriz operativa',
+  MISSION_QUIZ_COMPLETED: 'Completaste el Quiz Post-Mercado',
+};
+
+/**
  * Eventos reales de Virtus de HOY (deterministas del sello del día +
  * ai_events de Omega), separados por signo — "Qué sumó" / "Qué restó" del
  * Tab Estado. Distinto de la caja de feedback de texto libre del Tab
@@ -2940,7 +2968,10 @@ export async function getTodayVirtusEventReasons(
   if (aiEvents.error) throw aiEvents.error;
 
   const all: VirtusEventReason[] = [
-    ...(sealedEvents.data ?? []).map((row) => ({ reason: row.label as string, points: row.points as number })),
+    ...(sealedEvents.data ?? []).map((row) => ({
+      reason: VIRTUS_EVENT_LABELS[row.label as string] ?? (row.label as string),
+      points: row.points as number,
+    })),
     ...(aiEvents.data ?? []).map((row) => ({ reason: row.reason as string, points: row.points as number })),
   ];
 
