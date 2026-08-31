@@ -47,7 +47,6 @@ import { computeDisciplineTimeline, type DisciplineOperationInput } from '../lib
 import { isOnline } from '../lib/presence';
 import { currentStage, stageBadges } from '../lib/virtus';
 import AtaraxiaBar from './AtaraxiaBar';
-import OraculoMatutino from './OraculoMatutino';
 import ProgressInfoModal from './ProgressInfoModal';
 import UserEmblem from './UserEmblem';
 
@@ -304,8 +303,6 @@ function Dashboard() {
   const mailboxCount = pendingCount + pendingAgoraCount + shares.length + (hasUnsealedReminder ? 1 : 0);
 
   return (
-    <>
-      <OraculoMatutino />
       <div className="inicio-grid">
       <div className="inicio-main">
         <header className="topbar panel inicio-header">
@@ -692,7 +689,6 @@ function Dashboard() {
         </section>
       </aside>
       </div>
-    </>
   );
 }
 

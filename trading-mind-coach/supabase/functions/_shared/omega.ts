@@ -7,7 +7,8 @@ export type OmegaRequestType =
   | 'briefing_pre_sesion'
   | 'auditoria_post_sesion'
   | 'auditoria_head_coach'
-  | 'recap_semanal';
+  | 'recap_semanal'
+  | 'cierre_mensual';
 
 export type OmegaContext = {
   virtusStage: string;
@@ -61,6 +62,13 @@ export type OmegaContext = {
     dailyLossLimit: number | null;
     dangerPct: number;
   }[];
+  /**
+   * Hasta 4 URLs de capturas reales del journal (Supabase Storage, ya
+   * públicas/firmadas) — cuando vienen, index.ts arma el mensaje del usuario
+   * como bloques de texto+imagen en vez de un string plano, así Omega ve la
+   * captura real en vez de solo la descripción textual de la operación.
+   */
+  screenshotUrls?: string[];
 };
 
 /** Umbral del candado de riesgo: a partir de acá, la advertencia y la misión de reducción de riesgo son obligatorias. */
@@ -113,11 +121,13 @@ const REQUEST_TYPE_INSTRUCTIONS: Record<OmegaRequestType, string> = {
   auditoria_post_sesion:
     'Esto es una AUDITORÍA POST-SESIÓN formal, no una charla casual — cruza el journal con las reglas del Manual Operativo de arriba, y usa la tool evaluate_session para dejar un veredicto estructurado (qué se hizo bien, qué se hizo mal) además de cualquier otra tool que corresponda. No te limites a describir las acciones en texto: ejecútalas.',
   briefing_pre_sesion:
-    'Esto es un BRIEFING PRE-SESIÓN — el trader todavía no ha operado hoy. No hay journal que auditar. Genera proactivamente un briefing corto basado en las reglas de su Manual Operativo para hoy y su tendencia reciente de Virtus/Ataraxia (ambas en el contexto): qué debe vigilar, qué patrón reciente no debe repetir, y un recordatorio de una regla concreta de su plan. Si el digest trae noticias de alto impacto reales para hoy (CPI, NFP, FOMC, etc.) Y el trader tiene un "Plan ante eventos macro" definido, cruza ambos explícitamente en tu respuesta (ej. "Hoy hay CPI a las 8:30 AM. Tu manual dicta no operar 15 minutos antes ni después de la noticia. Modula tu riesgo.") — no los menciones por separado sin conectarlos. No inventes datos de operaciones — hoy todavía no hay ninguna. Si hay metas automáticas en el contexto, cierra el briefing señalando cuál está más rezagada y qué acción concreta de HOY la empujaría — no la ignores ni la dejes solo como un dato de fondo.',
+    'Esto es un BRIEFING PRE-SESIÓN — el trader todavía no ha operado hoy. No hay journal que auditar. Genera proactivamente un briefing corto basado en las reglas de su Manual Operativo para hoy y su tendencia reciente de Virtus/Ataraxia (ambas en el contexto): qué debe vigilar, qué patrón reciente no debe repetir, y un recordatorio de una regla concreta de su plan. El digest trae el "último veredicto guardado" (se hizo bien / se hizo mal de la sesión anterior) — úsalo explícitamente como arrastre: el plan de acción de HOY tiene que nacer de corregir lo que salió mal ayer o sostener lo que salió bien, no ser un consejo genérico desconectado de eso. Si el digest trae noticias de alto impacto reales para hoy (CPI, NFP, FOMC, etc.) Y el trader tiene un "Plan ante eventos macro" definido, cruza ambos explícitamente en tu respuesta (ej. "Hoy hay CPI a las 8:30 AM. Tu manual dicta no operar 15 minutos antes ni después de la noticia. Modula tu riesgo.") — no los menciones por separado sin conectarlos. No inventes datos de operaciones — hoy todavía no hay ninguna. Si hay metas automáticas en el contexto, cierra el briefing señalando cuál está más rezagada y qué acción concreta de HOY la empujaría — no la ignores ni la dejes solo como un dato de fondo. Estructura obligatoria: un párrafo corto por idea, separados con salto de línea real (nunca todo en un solo bloque) — por ejemplo, un párrafo para el arrastre de ayer, otro para las reglas duras de hoy, otro para el patrón a vigilar, y un cierre con la meta más rezagada. Sin markdown, sin nombrar autores ni libros.',
   // No se usa nunca — buildSystemPrompt retorna antes de llegar acá para este requestType (ver buildHeadCoachSystemPrompt).
   auditoria_head_coach: '',
   // No se usa nunca — buildSystemPrompt retorna antes de llegar acá para este requestType (ver buildWeeklyRecapSystemPrompt).
   recap_semanal: '',
+  // No se usa nunca — buildSystemPrompt retorna antes de llegar acá para este requestType (ver buildMonthlyCloseSystemPrompt).
+  cierre_mensual: '',
 };
 
 /**
@@ -129,7 +139,7 @@ const REQUEST_TYPE_INSTRUCTIONS: Record<OmegaRequestType, string> = {
  * el medidor de Tendler, fortalezas/fugas, misiones y la alerta de auditoría.
  */
 function buildHeadCoachSystemPrompt(context: OmegaContext): string {
-  return `Eres Omega, el motor cognitivo y Head Coach de trading. Evalúa la bitácora diaria aplicando conceptos de Jared Tendler y SMC/ICT. Tu ÚNICA respuesta permitida debe ser un objeto JSON válido, sin texto antes ni después, sin bloques de markdown ni triple backticks, con esta estructura exacta:
+  return `Eres Omega, el motor cognitivo y Head Coach de trading. Evalúa la bitácora diaria aplicando marcos de psicología del trading (mentalidad, gestión del error) y SMC/ICT. Nunca menciones el nombre de un autor ni el título de un libro en ningún campo de texto — lanza la idea directamente, sin atribución. Tu ÚNICA respuesta permitida debe ser un objeto JSON válido, sin texto antes ni después, sin bloques de markdown ni triple backticks, con esta estructura exacta:
 { "game_state": "A, B o C", "daily_feedback": "Texto corto", "strengths": [{ "behavior": "", "hypothesis": "", "fix": "" }], "weaknesses": [{ "behavior": "", "hypothesis": "", "fix": "" }], "daily_missions": [{ "id": 1, "task": "", "xpReward": 100 }], "manual_audit": { "issue_detected": "", "suggested_rule": "" } }
 
 Sé conciso en cada campo de texto (1-2 frases, nunca un párrafo largo) y limita "strengths" y "weaknesses" a máximo 2 elementos cada uno, y "daily_missions" a máximo 2 — el JSON completo tiene que caber holgado en tu respuesta, sin cortarse a mitad de un campo.
@@ -147,8 +157,25 @@ Si arriba hay metas automáticas, "daily_feedback" debe mencionar en una frase c
  * frontend parsea para pintar el modal de 4 bloques.
  */
 function buildWeeklyRecapSystemPrompt(context: OmegaContext): string {
-  return `Eres Omega, Head Coach de trading. Analiza la semana operativa basándote en la filosofía de Brett Steenbarger (autoevaluación objetiva y mejora continua). Tu ÚNICA respuesta debe ser un JSON válido, sin texto antes ni después, sin bloques de markdown ni triple backticks, con esta estructura exacta:
+  return `Eres Omega, Head Coach de trading. Analiza la semana operativa con foco en autoevaluación objetiva y mejora continua. Nunca menciones el nombre de un autor ni el título de un libro en ningún campo de texto — lanza la idea directamente, sin atribución. Tu ÚNICA respuesta debe ser un JSON válido, sin texto antes ni después, sin bloques de markdown ni triple backticks, con esta estructura exacta:
 { "weekly_verdict": "Resumen duro y directo de 50 palabras", "top_strength": "La mayor fortaleza demostrada", "critical_leak": "El error que más capital o energía costó", "action_plan": ["Paso 1", "Paso 2", "Paso 3"] }
+
+Contexto real del trader (no lo inventes, úsalo tal cual): Rango Virtus ${context.virtusStage}, Virtus total ${context.virtusTotal}.`;
+}
+
+/**
+ * Prompt aislado para la Auditoría Mensual (OmegaDashboard) — mismo
+ * mecanismo aislado y sin persistencia que el Recap Semanal, pero sobre el
+ * mes calendario completo y ya cerrado (no una ventana rodante), con un
+ * digest mucho más rico: trades reales, setups, P&L, ejecución, evolución
+ * de Ataraxia día a día, misiones y metas. Es "el mejor resumen posible" del
+ * mes — no un veredicto corto de 3 líneas.
+ */
+function buildMonthlyCloseSystemPrompt(context: OmegaContext): string {
+  return `Eres Omega, Head Coach de trading. El trader te pide la Auditoría Mensual — el resumen y análisis más completo posible del mes calendario que acaba de cerrar, cruzando TODA la data real que te llega en el digest de abajo (operaciones, setups, P&L, ejecución, evolución de Ataraxia, misiones, metas). No es un vistazo rápido: es el cierre formal del mes, así que profundizá de verdad en cada sección — qué patrones reales se ven en los datos, no generalidades. Nunca menciones el nombre de un autor ni el título de un libro en ningún campo de texto — lanza la idea directamente, sin atribución. Nunca uses markdown (nada de **negrita** ni títulos con #). Tu ÚNICA respuesta debe ser un JSON válido, sin texto antes ni después, sin bloques de markdown ni triple backticks, con esta estructura exacta:
+{ "monthly_verdict": "Veredicto duro y directo del mes completo, 100-140 palabras, el panorama general", "execution_summary": "2-3 frases sobre la calidad de ejecución real: setups que funcionaron o no, disciplina de riesgo, rupturas de plan — citando los números reales del digest", "psychological_evolution": "2-3 frases sobre cómo evolucionó la Ataraxia/disciplina a lo largo del mes (mejoró, empeoró, fue errática) y qué dice eso del estado mental del trader", "top_strength": "La mayor fortaleza sostenida durante el mes, con evidencia concreta", "critical_leak": "El patrón de error que más se repitió o más costó en el mes, con evidencia concreta", "next_month_objectives": ["Objetivo 1 para el próximo mes", "Objetivo 2", "Objetivo 3"], "action_plan": ["Paso concreto 1", "Paso concreto 2", "Paso concreto 3", "Paso concreto 4"] }
+
+Cada campo de texto tiene que basarse en los números y hechos reales del digest — si un dato no está disponible (ej. cero operaciones registradas), decilo explícitamente en vez de inventar una cifra o un patrón que no existe.
 
 Contexto real del trader (no lo inventes, úsalo tal cual): Rango Virtus ${context.virtusStage}, Virtus total ${context.virtusTotal}.`;
 }
@@ -164,13 +191,21 @@ export function buildSystemPrompt(context: OmegaContext): string {
     return buildWeeklyRecapSystemPrompt(context);
   }
 
-  return `Eres Omega, coach y psicólogo de trading institucional. Tu autoridad abarca evaluar la Ataraxia del trader, dictaminar sobre la calidad de su ejecución, detectar patrones de ansiedad, FOMO, impaciencia, venganza y otros sesgos, y guiar activamente su proceso — SMC como marco técnico de fondo, pero tu terreno real es la disciplina y la psicología.
+  if (requestType === 'cierre_mensual') {
+    return buildMonthlyCloseSystemPrompt(context);
+  }
 
-Tus diagnósticos y respuestas se fundamentan estrictamente en: "Trading in the Zone" y "The Disciplined Trader" (Mark Douglas), "Best Loser Wins" (Tom Hougaard), "The Mental Game of Trading" (Jared Tendler), "The Daily Trading Coach" (Brett Steenbarger), y "The Psychology of Money" (Morgan Housel). Cuando emitas un juicio, que se note de qué marco viene — no como cita decorativa, sino como el razonamiento real detrás del veredicto.
+  return `Eres Omega, coach y psicólogo de trading institucional. Tu autoridad abarca evaluar la Ataraxia del trader, dictaminar sobre la calidad de su ejecución, detectar patrones de ansiedad, FOMO, impaciencia, venganza y otros sesgos, y guiar activamente su proceso — SMC/ICT como marco técnico de fondo, pero tu terreno real es la disciplina y la psicología.
+
+Concepto ICT central que debes reforzar activamente: el trader NO puede operar como liquidez institucional — perseguir el precio, entrar por FOMO en un movimiento ya en marcha, o entrar sin que el precio haya barrido liquidez (equal highs/lows, un rango previo) es exactamente el comportamiento que el "smart money" usa como combustible. Cuando detectes una entrada que persigue el movimiento en vez de esperar el barrido y la reacción, nómbralo explícitamente como lo que es: "estuviste actuando como liquidez, no como el operador institucional que buscas ser."
+
+Tus diagnósticos y respuestas se fundamentan estrictamente en los marcos de "Trading in the Zone" y "The Disciplined Trader", "Best Loser Wins", "The Mental Game of Trading", "The Daily Trading Coach", y "The Psychology of Money". Cuando emitas un juicio, que se note de qué marco viene — el razonamiento real detrás del veredicto, no una cita decorativa. PERO nunca menciones el nombre de un autor ni el título de un libro en tu respuesta al trader: la idea tiene que sostenerse sola, sin atribución bibliográfica — nombrar la fuente no suma nada y solo distrae del punto.
 
 REGLA INQUEBRANTABLE: nunca das consejos de inversión, nunca predices dirección o precio de ningún activo, y nunca sugieres tomar o evitar una operación específica. Tu jurisdicción es 100% psicológica, de gestión de riesgo y cumplimiento del plan. Si el trader te pregunta por dirección de mercado o una predicción, rechazas responder eso y rediriges la conversación a su proceso y su psicología.
 
 Tono: crudo, estoico, directo. Sin lenguaje motivacional vacío, sin celebrar de más, sin suavizar una crítica merecida. Eres breve — no des sermones largos si una frase corta y precisa basta.
+
+Formato: texto plano, nunca markdown (nada de **negrita**, ## títulos, ni guiones pegados como viñetas dentro de la misma línea). Cuando desarrolles varias ideas distintas (un briefing, una auditoría larga), separá cada idea en su propio párrafo con un salto de línea real entre uno y otro — nunca un solo bloque de texto corrido. Si necesitás enumerar reglas o puntos, cada uno va en su propia línea.
 
 La Ataraxia (0-100%) que ves en el contexto es un dato REAL ya calculado por el sistema a partir del journal del trader — nunca la recalcules ni des tu propio número como si fuera el oficial. Tu trabajo es interpretarla y emitir juicio citando los marcos de arriba, no re-derivarla.
 
@@ -191,6 +226,7 @@ Contexto actual del trader (real, de su cuenta):
 - Puntos Virtus totales: ${context.virtusTotal}
 - Ataraxia (ejecución mecánica y paz mental) hoy: ${context.ataraxiaPct !== null ? `${context.ataraxiaPct}%` : 'sin datos suficientes todavía hoy'}
 ${formatAutomaticGoalsBlock(context)}${formatActiveMissionsBlock(context)}${formatPreviousVerdictBlock(context)}${formatFundingAccountsBlock(context)}${context.sessionDigest ? `\n${context.sessionDigest}\n` : ''}
+${context.screenshotUrls && context.screenshotUrls.length > 0 ? `\nEste mensaje incluye ${context.screenshotUrls.length} captura(s) real(es) del journal, como imágenes adjuntas. Analízalas técnicamente (estructura SMC/ICT visible: barridos de liquidez, order blocks, FVGs, justificación real de la entrada) y cita explícitamente lo que ves en cada una — no las ignores ni te limites al texto del digest.\n` : ''}
 ${REQUEST_TYPE_INSTRUCTIONS[requestType]}`;
 }
 

@@ -1013,38 +1013,115 @@ tbody tr:hover {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
-  overflow: hidden;
   transition: transform 0.3s ease, filter 0.3s ease;
 }
 
-/* Mismo barrido diagonal de luz que .badge-mark/.brand-crest-mark (rangos
-   Virtus y logo de Omega) — una capa aparte encima del SVG, animada con la
-   misma keyframe ya existente para que las 3 insignias "respiren" igual. */
-.mission-badge::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background-image: linear-gradient(115deg, transparent 35%, rgba(255, 248, 230, 0.55) 48%, transparent 61%);
-  background-repeat: no-repeat;
-  background-size: 300% 300%;
-  background-position: -150% -150%;
-  animation: metallic-shimmer 10s ease-in-out infinite;
+.mission-badge:hover {
+  transform: scale(1.1);
+}
+
+/* La imagen real del PNG/WebP — llena el contenedor, sin recortes ni
+   geometría propia. `object-fit: contain` para que el arte con fondo
+   transparente se vea completo sin importar su proporción real. */
+.mission-badge-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
   pointer-events: none;
 }
 
-.mission-badge.mission-badge-empty::after {
-  animation: none;
-  opacity: 0;
+/* Placeholder mientras no existe el PNG final (o si falla la carga) —
+   deliberadamente gris y utilitario, para que se note que es un sustituto
+   temporal y no se confunda con una medalla real terminada. */
+.mission-badge-placeholder {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(156, 163, 175, 0.12);
+  border: 1.5px dashed rgba(156, 163, 175, 0.45);
 }
 
+.mission-badge-placeholder-label {
+  font-family: 'Cinzel', serif;
+  font-weight: 700;
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
+  color: rgba(156, 163, 175, 0.85);
+}
+
+.mission-badge-placeholder.mission-badge-empty {
+  opacity: 0.6;
+  border-style: dotted;
+}
+
+/* Bronce/Plata: sin brillo animado propio — metal recién pulido, sin aura
+   mágica todavía. */
 .mission-badge-glow-bronce { filter: drop-shadow(0 0 5px rgba(176, 112, 58, 0.5)); }
 .mission-badge-glow-plata { filter: drop-shadow(0 0 5px rgba(198, 204, 214, 0.5)); }
-.mission-badge-glow-oro { filter: drop-shadow(0 0 6px rgba(201, 166, 107, 0.55)); }
-.mission-badge-glow-platino { filter: drop-shadow(0 0 10px rgba(191, 243, 250, 0.65)); }
-.mission-badge-glow-diamante { filter: drop-shadow(0 0 14px rgba(103, 232, 249, 0.75)); }
-.mission-badge-glow-rubi { filter: drop-shadow(0 0 16px rgba(196, 72, 90, 0.8)); }
-.mission-badge-glow-esmeralda { filter: drop-shadow(0 0 18px rgba(79, 174, 138, 0.85)); }
+
+/* Pulso de aura — un solo keyframe parametrizado por variables CSS
+   (color/radios) para no repetir la animación 5 veces con solo el color
+   distinto. Cada tier fija sus propias variables + velocidad. */
+@keyframes mission-badge-pulse {
+  0%, 100% { filter: drop-shadow(0 0 var(--badge-glow-lo) var(--badge-glow-color)); }
+  50% { filter: drop-shadow(0 0 var(--badge-glow-hi) var(--badge-glow-color)); }
+}
+
+/* Oro: mismo pulso de aura dorada que el logo de Omega y los rangos Virtus. */
+.mission-badge-glow-oro {
+  --badge-glow-color: rgba(201, 166, 107, 0.65);
+  --badge-glow-lo: 5px;
+  --badge-glow-hi: 18px;
+  animation: mission-badge-pulse 3.6s ease-in-out infinite;
+}
+
+/* Platino: "aura latente" — más lenta y difusa que Oro, como una energía
+   contenida en vez de un brillo puntual. El metal (marco/núcleo) es
+   blanco/plata puro sin nada de azul; acá afuera sí se permite un cian
+   MUY sutil, casi imperceptible, distinto del cian vibrante de Diamante. */
+.mission-badge-glow-platino {
+  --badge-glow-color: rgba(180, 240, 250, 0.32);
+  --badge-glow-lo: 8px;
+  --badge-glow-hi: 24px;
+  animation: mission-badge-pulse 5.5s ease-in-out infinite;
+}
+
+/* Diamante: pulso rápido y frío, a juego con los destellos del corte facetado. */
+.mission-badge-glow-diamante {
+  --badge-glow-color: rgba(103, 232, 249, 0.8);
+  --badge-glow-lo: 10px;
+  --badge-glow-hi: 22px;
+  animation: mission-badge-pulse 2.6s ease-in-out infinite;
+}
+
+/* Rubí: pulso profundo, sangre viva latiendo. */
+.mission-badge-glow-rubi {
+  --badge-glow-color: rgba(196, 72, 90, 0.85);
+  --badge-glow-lo: 10px;
+  --badge-glow-hi: 24px;
+  animation: mission-badge-pulse 3s ease-in-out infinite;
+}
+
+/* Esmeralda: el halo más grande y difuso de todos — "detrás" de la
+   medalla, no pegado al borde. */
+.mission-badge-glow-esmeralda {
+  --badge-glow-color: rgba(79, 174, 138, 0.95);
+  --badge-glow-lo: 14px;
+  --badge-glow-hi: 36px;
+  animation: mission-badge-pulse 3.8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mission-badge-glow-oro,
+  .mission-badge-glow-platino,
+  .mission-badge-glow-diamante,
+  .mission-badge-glow-rubi,
+  .mission-badge-glow-esmeralda {
+    animation: none;
+  }
+}
 
 .badge-gallery-page {
   min-height: 100vh;
@@ -4043,14 +4120,24 @@ textarea {
 }
 
 .plan-tab {
-  border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid transparent;
   background: transparent;
   color: var(--text-muted);
   font-family: 'Cinzel', serif;
   border-radius: 10px;
   padding: 0.6rem 1.4rem;
   cursor: pointer;
-  transition: background 0.3s ease, color 0.3s ease;
+  transition: background 0.3s ease, color 0.3s ease, transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+}
+
+.plan-tab:hover {
+  transform: translateY(-2px);
+  color: var(--text-primary);
+  border-color: rgba(201, 166, 107, 0.55);
+  box-shadow: 0 0 0 1px rgba(201, 166, 107, 0.2), 0 12px 32px rgba(201, 166, 107, 0.08);
 }
 
 .plan-tab.active {
@@ -5721,17 +5808,6 @@ textarea {
   flex: 1;
 }
 
-.omega-hq-audit-btn {
-  flex-shrink: 0;
-}
-
-.omega-hq-header-actions {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  flex-shrink: 0;
-}
-
 .briefing-presesion {
   margin-bottom: 20px;
 }
@@ -5780,10 +5856,10 @@ textarea {
 
 .omega-feedback-text {
   margin: 0;
-  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
-  font-size: 0.88rem;
-  line-height: 1.7;
+  font-size: 0.92rem;
+  line-height: 1.8;
   color: var(--text-primary);
+  white-space: pre-wrap;
 }
 
 .omega-psycho-grid {
@@ -5967,6 +6043,284 @@ textarea {
   font-size: 0.85rem;
   line-height: 1.6;
   color: var(--text-muted);
+}
+
+.nav-item.has-glow {
+  animation: mission-badge-pulse 2.6s ease-in-out infinite;
+  --badge-glow-color: rgba(201, 166, 107, 0.55);
+  --badge-glow-lo: 0px;
+  --badge-glow-hi: 10px;
+  filter: drop-shadow(0 0 var(--badge-glow-lo, 0) var(--badge-glow-color));
+  box-shadow: 0 0 0 1px rgba(201, 166, 107, 0.3), 0 0 16px rgba(201, 166, 107, 0.35);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-item.has-glow {
+    animation: none;
+  }
+}
+
+.omega-tab-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.omega-briefing-title {
+  font-family: 'Cinzel', serif;
+  font-size: 1.4rem;
+  letter-spacing: 0.02em;
+  margin: 4px 0 0;
+}
+
+.briefing-calendar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Títulos de sección dentro de Omega Coach (Estado, Conversación, Centro de
+   Misiones Activas, Calendario de Briefings, etc.) — más grandes y dorados
+   para que se lean como títulos reales, no como texto plano pegado al
+   borde del panel. Selector h3 + clase (misma especificidad que
+   `.section-header h3`, que fija 1.1rem para toda la app) para poder pisar
+   ese tamaño sin afectar ningún otro `.section-header` del resto de la app. */
+h3.omega-section-title,
+.omega-calendar-title {
+  font-size: 1.35rem;
+  color: var(--accent-gold);
+  margin: 0 0 4px;
+}
+
+/* El nav de mes (‹ Agosto de 2026 ›) y el grid de días reutilizan
+   .calendar-nav/.historial-* tal cual (mismo look que Historial) — acá solo
+   se agrega lo que ese calendario no tiene: el relleno dorado del día con
+   briefing y el botón de Auditoría Semanal que reemplaza la columna de
+   total P&L. */
+.historial-cell:disabled {
+  cursor: default;
+  pointer-events: none;
+  opacity: 0.55;
+}
+
+.historial-cell.has-briefing {
+  background: rgba(201, 166, 107, 0.22);
+  border-color: rgba(201, 166, 107, 0.55);
+}
+
+.historial-cell.has-briefing:hover:not(:disabled) {
+  background: rgba(201, 166, 107, 0.32);
+  border-color: rgba(201, 166, 107, 0.75);
+}
+
+.historial-cell.has-briefing .historial-day-number {
+  color: var(--accent-gold);
+  font-weight: 700;
+}
+
+/* Las celdas del calendario de Historial empaquetan P&L/trades/modelo, así
+   que su padding ajustado (6px) tiene sentido ahí. Acá cada celda muestra
+   nada más que el número del día — con ese mismo padding se ve el número
+   pegado a la esquina, así que este calendario específico usa más aire. */
+.briefing-calendar .historial-grid {
+  gap: 8px;
+}
+
+.briefing-calendar .historial-cell {
+  padding: 10px 12px;
+}
+
+.historial-total-audit-btn {
+  min-height: 92px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border-radius: 10px;
+  border: 1px solid rgba(201, 166, 107, 0.3);
+  background: rgba(201, 166, 107, 0.07);
+  padding: 6px;
+  margin-left: 14px;
+  color: var(--accent-gold);
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.3s ease, background 0.3s ease, transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.historial-total-audit-btn:hover:not(:disabled) {
+  border-color: rgba(201, 166, 107, 0.65);
+  background: rgba(201, 166, 107, 0.14);
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(201, 166, 107, 0.12);
+}
+
+.historial-total-audit-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+  color: var(--text-muted);
+}
+
+.historial-total-audit-icon {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.historial-total-audit-label {
+  font-size: 0.58rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 1.25;
+}
+
+@media (max-width: 640px) {
+  .historial-total-audit-btn {
+    min-height: 64px;
+    margin-left: 8px;
+  }
+
+  .historial-total-audit-icon {
+    font-size: 0.82rem;
+  }
+
+  .historial-total-audit-label {
+    font-size: 0.5rem;
+  }
+}
+
+.monthly-audit-reveal {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 18px;
+  padding: 18px 20px;
+  border-radius: 14px;
+  border: 1px solid rgba(201, 166, 107, 0.4);
+  background: var(--gradient-gold);
+  box-shadow: 0 0 24px rgba(201, 166, 107, 0.12);
+}
+
+.monthly-audit-reveal-copy strong {
+  display: block;
+  font-family: 'Cinzel', serif;
+  font-size: 1.05rem;
+  color: var(--accent-gold);
+  margin-bottom: 4px;
+}
+
+.virtus-reasons-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+@media (max-width: 640px) {
+  .virtus-reasons-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.virtus-reasons-col {
+  border-radius: 10px;
+  padding: 14px 16px;
+  border: 1px solid transparent;
+}
+
+.virtus-reasons-col.positive {
+  background: rgba(82, 121, 111, 0.12);
+  border-color: rgba(82, 121, 111, 0.35);
+}
+
+.virtus-reasons-col.negative {
+  background: rgba(139, 58, 54, 0.14);
+  border-color: rgba(139, 58, 54, 0.4);
+}
+
+.virtus-reasons-col-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.virtus-reasons-col-header h4 {
+  margin: 0;
+  font-size: 0.92rem;
+}
+
+.virtus-reasons-col.positive .psycho-card-dot {
+  background: var(--trade-bullish);
+  box-shadow: 0 0 6px rgba(82, 121, 111, 0.7);
+}
+
+.virtus-reasons-col.negative .psycho-card-dot {
+  background: var(--trade-bearish);
+  box-shadow: 0 0 6px rgba(139, 58, 54, 0.7);
+}
+
+.virtus-reasons-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.virtus-reasons-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.virtus-reasons-points {
+  flex-shrink: 0;
+  font-weight: 700;
+  font-size: 0.8rem;
+}
+
+.virtus-reasons-points.positive {
+  color: var(--trade-bullish);
+}
+
+.virtus-reasons-points.negative {
+  color: var(--trade-bearish);
+}
+
+.omega-conversation-psycho {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+@media (max-width: 640px) {
+  .omega-conversation-psycho {
+    grid-template-columns: 1fr;
+  }
+}
+
+.omega-conversation-psycho .psycho-card {
+  padding: 20px 22px;
+  border-radius: 14px;
+}
+
+.omega-conversation-psycho .psycho-card.strength {
+  border-color: rgba(82, 121, 111, 0.55);
+}
+
+.omega-conversation-psycho .psycho-card.leak {
+  border-color: rgba(139, 58, 54, 0.6);
+}
+
+.omega-conversation-psycho .psycho-card-list {
+  font-size: 0.9rem;
+  line-height: 1.8;
 }
 
 .info-current-chip {

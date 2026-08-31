@@ -2854,3 +2854,98 @@ export async function getVirtusAiEventsForWeek(
   if (error) throw error;
   return (data ?? []) as WeeklyVirtusAiEvent[];
 }
+
+// --- Omega Coach: briefings persistidos (omega_briefings) ---
+
+export async function getTodayBriefingAckStatus(
+  userId: string,
+  date: string,
+): Promise<{ exists: boolean; acknowledged: boolean }> {
+  const { data, error } = await supabase
+    .from('omega_briefings')
+    .select('acknowledged_at')
+    .eq('user_id', userId)
+    .eq('briefing_date', date)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return { exists: false, acknowledged: false };
+  return { exists: true, acknowledged: data.acknowledged_at !== null };
+}
+
+/** "Contrato de lectura" — el propio trader marca que leyó el briefing de hoy. Sin XP asociado, RLS lo permite. */
+export async function acknowledgeBriefing(userId: string, date: string): Promise<void> {
+  const { error } = await supabase
+    .from('omega_briefings')
+    .update({ acknowledged_at: new Date().toISOString() })
+    .eq('user_id', userId)
+    .eq('briefing_date', date);
+
+  if (error) throw error;
+}
+
+/** Fechas (YYYY-MM-DD) con briefing guardado dentro del rango — para pintar el punto dorado del calendario histórico. */
+export async function getBriefingDatesInRange(userId: string, start: string, end: string): Promise<string[]> {
+  const { data, error } = await supabase
+    .from('omega_briefings')
+    .select('briefing_date')
+    .eq('user_id', userId)
+    .gte('briefing_date', start)
+    .lte('briefing_date', end);
+
+  if (error) throw error;
+  return (data ?? []).map((row) => row.briefing_date as string);
+}
+
+export async function getBriefingByDate(userId: string, date: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('omega_briefings')
+    .select('content')
+    .eq('user_id', userId)
+    .eq('briefing_date', date)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data?.content ?? null;
+}
+
+export type VirtusEventReason = { reason: string; points: number };
+
+/**
+ * Eventos reales de Virtus de HOY (deterministas del sello del día +
+ * ai_events de Omega), separados por signo — "Qué sumó" / "Qué restó" del
+ * Tab Estado. Distinto de la caja de feedback de texto libre del Tab
+ * Conversación: acá son los eventos puntuales con su puntaje real.
+ */
+export async function getTodayVirtusEventReasons(
+  userId: string,
+  date: string,
+): Promise<{ positive: VirtusEventReason[]; negative: VirtusEventReason[] }> {
+  const entry = await getJournalEntryByDate(userId, date);
+  const nextDay = localIsoDate(new Date(new Date(`${date}T00:00:00`).getTime() + 24 * 60 * 60 * 1000));
+
+  const [sealedEvents, aiEvents] = await Promise.all([
+    entry?.id
+      ? supabase.from('virtus_events').select('label, points').eq('journal_entry_id', entry.id)
+      : Promise.resolve({ data: [], error: null }),
+    supabase
+      .from('virtus_ai_events')
+      .select('points, reason')
+      .eq('user_id', userId)
+      .gte('created_at', `${date}T00:00:00`)
+      .lt('created_at', `${nextDay}T00:00:00`),
+  ]);
+
+  if (sealedEvents.error) throw sealedEvents.error;
+  if (aiEvents.error) throw aiEvents.error;
+
+  const all: VirtusEventReason[] = [
+    ...(sealedEvents.data ?? []).map((row) => ({ reason: row.label as string, points: row.points as number })),
+    ...(aiEvents.data ?? []).map((row) => ({ reason: row.reason as string, points: row.points as number })),
+  ];
+
+  return {
+    positive: all.filter((event) => event.points > 0),
+    negative: all.filter((event) => event.points < 0),
+  };
+}

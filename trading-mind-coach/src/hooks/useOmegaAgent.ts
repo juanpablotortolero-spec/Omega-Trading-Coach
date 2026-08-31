@@ -4,12 +4,14 @@ import { readFunctionErrorMessage } from '../lib/functionsError';
 import { supabase } from '../lib/supabaseClient';
 import {
   getAiMissions,
+  getDisciplineInputsByDate,
   getFundingAccountsForJournalEntry,
   getJournalEntryByDate,
   getLatestJournalEntryDate,
   getLatestSessionVerdict,
   getOmegaAuditsForWeek,
   getOperations,
+  getOperationsInRange,
   getTradingPlan,
   getVirtusAiEventsForWeek,
   getVirtusDelta,
@@ -20,10 +22,11 @@ import {
   type FundingAccount,
   type JournalEntryFull,
   type OperationItem,
+  type OperationRecord,
   type TradingPlan,
 } from '../lib/api';
 import { localIsoDate } from '../lib/calendar';
-import { computeDisciplineScore } from '../lib/disciplineScore';
+import { computeDisciplineScore, computeDisciplineTimeline, type DisciplineOperationInput } from '../lib/disciplineScore';
 import { getEventsForDate, getWeeklyEconomicEvents, isWithinFetchedWeek, type EconomicEvent } from '../lib/economicCalendar';
 import { currentStage } from '../lib/virtus';
 
@@ -47,7 +50,8 @@ type OmegaRequestType =
   | 'briefing_pre_sesion'
   | 'auditoria_post_sesion'
   | 'auditoria_head_coach'
-  | 'recap_semanal';
+  | 'recap_semanal'
+  | 'cierre_mensual';
 
 type OmegaResponse = { ok: true; reply: string; effects: OmegaEffects } | { ok: false; error: string };
 
@@ -78,6 +82,45 @@ export type WeeklyRecapResult = {
     weekEnd: string;
   };
 };
+
+export type MonthlyClose = {
+  monthly_verdict: string;
+  execution_summary: string;
+  psychological_evolution: string;
+  top_strength: string;
+  critical_leak: string;
+  next_month_objectives: string[];
+  action_plan: string[];
+};
+
+export type MonthlyCloseResult = {
+  close: MonthlyClose;
+  metrics: {
+    monthLabel: string;
+    tradesCount: number;
+    winCount: number;
+    lossCount: number;
+    pnlTotal: number;
+    brokePlanCount: number;
+    ataraxiaAvg: number | null;
+    missionsCompleted: number;
+    xpFromMissions: number;
+    monthStart: string;
+    monthEnd: string;
+  };
+};
+
+/** Hasta 4 URLs de capturas reales de las operaciones del día — para que Omega vea la sesión, no solo la lea. */
+function collectScreenshotUrls(operations: OperationItem[]): string[] {
+  const urls: string[] = [];
+  for (const op of operations) {
+    for (const shot of op.screenshots) {
+      if (urls.length >= 4) return urls;
+      urls.push(shot.url);
+    }
+  }
+  return urls;
+}
 
 /** Quita cercas de markdown (```json ... ```) si el modelo las agregó a pesar de la instrucción de responder JSON puro. */
 function stripMarkdownFence(text: string): string {
@@ -179,7 +222,10 @@ Reglas relevantes del Manual Operativo:
 - Reglas psicológicas: ${plan?.psychological_rules || '(no definidas)'}
 - Días sin operar: ${plan?.no_trade_days || '(no definidos)'}
 - Trades permitidos por sesión: ${plan?.max_trades_per_session || '(no definido)'}
-- Plan ante rachas negativas: ${plan?.losing_streak_plan || '(no definido)'}`;
+- Plan ante rachas negativas: ${plan?.losing_streak_plan || '(no definido)'}
+- Reglas de análisis técnico: ${plan?.market_analysis_rules || '(no definidas)'}
+- Reglas de preservación de capital: ${plan?.capital_preservation_rules || '(no definidas)'}
+- Setups definidos: ${plan?.setups?.length ? plan.setups.map((s) => s.name).filter(Boolean).join(', ') || '(sin nombres)' : '(sin setups definidos)'}`;
 }
 
 /**
@@ -265,6 +311,7 @@ export function useOmegaAgent() {
         sessionDate?: string;
         fundingAccounts?: Awaited<ReturnType<typeof getFundingRiskContext>>;
         previousVerdict?: { wentWell: string[]; wentWrong: string[] };
+        screenshotUrls?: string[];
       },
     ) => {
       if (!user) return;
@@ -366,6 +413,7 @@ export function useOmegaAgent() {
           sessionDate: targetDate,
           fundingAccounts,
           previousVerdict: latestVerdict ? { wentWell: latestVerdict.went_well, wentWrong: latestVerdict.went_wrong } : undefined,
+          screenshotUrls: collectScreenshotUrls(operations),
         });
       } catch (err) {
         setError(err instanceof Error ? err.message : 'No se pudo evaluar la sesión.');
@@ -414,6 +462,7 @@ export function useOmegaAgent() {
         ataraxiaPct: null,
         sessionDigest: digest,
         requestType: 'briefing_pre_sesion',
+        sessionDate: today,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo generar el briefing.');
@@ -460,6 +509,7 @@ export function useOmegaAgent() {
             requestType: 'auditoria_head_coach',
             fundingAccounts,
             automaticGoals,
+            screenshotUrls: collectScreenshotUrls(operations),
           },
         },
       });
@@ -486,12 +536,17 @@ export function useOmegaAgent() {
    * ninguna tabla: no se pidió historial de recaps pasados, solo generarlo y
    * mostrarlo en el modal al hacer clic.
    */
-  const requestWeeklyRecap = useCallback(async (): Promise<WeeklyRecapResult> => {
+  /**
+   * `referenceDate` fija QUÉ semana se audita (por defecto, la actual) — el
+   * calendario histórico de briefings ahora ofrece un botón de Auditoría
+   * Semanal por cada fila/semana ya cerrada, no solo la de hoy.
+   */
+  const requestWeeklyRecap = useCallback(async (referenceDate: Date = new Date()): Promise<WeeklyRecapResult> => {
     if (!user) throw new Error('No autenticado.');
 
-    const { weekStart, weekEnd } = getWeekBounds(new Date());
+    const { weekStart, weekEnd } = getWeekBounds(referenceDate);
     const [killSwitch, audits, virtusEvents, virtusTotal] = await Promise.all([
-      getWeeklyKillSwitchStatus(user.id, new Date()),
+      getWeeklyKillSwitchStatus(user.id, referenceDate),
       getOmegaAuditsForWeek(user.id, weekStart, weekEnd),
       getVirtusAiEventsForWeek(user.id, weekStart, weekEnd),
       getVirtusTotal(user.id),
@@ -562,6 +617,160 @@ ${weaknessesLines.length > 0 ? weaknessesLines.join('\n') : '(ninguna registrada
     }
   }, [user]);
 
+  /**
+   * Auditoría Mensual para OmegaDashboard — mismo aislamiento que
+   * requestWeeklyRecap, pero sobre un MES CALENDARIO completo y ya cerrado
+   * (no una ventana rodante de "últimas 4 semanas"): `monthStart`/`monthEnd`
+   * vienen del calendario histórico, que solo revela el botón una vez que
+   * ese mes terminó. El digest es deliberadamente el más rico de todos los
+   * que arma este hook — trades reales, setups, P&L, ejecución, evolución
+   * día a día de Ataraxia, misiones y metas — para que Omega pueda producir
+   * "el mejor resumen posible" en vez de un veredicto genérico de 3 líneas.
+   */
+  const requestMonthlyClose = useCallback(
+    async (monthStart: string, monthEnd: string): Promise<MonthlyCloseResult> => {
+      if (!user) throw new Error('No autenticado.');
+
+      const [ops, audits, virtusEvents, virtusTotal, plan, disciplineInputs] = await Promise.all([
+        getOperationsInRange(user.id, monthStart, monthEnd),
+        getOmegaAuditsForWeek(user.id, monthStart, monthEnd),
+        getVirtusAiEventsForWeek(user.id, monthStart, monthEnd),
+        getVirtusTotal(user.id),
+        getTradingPlan(user.id),
+        getDisciplineInputsByDate(user.id),
+      ]);
+
+      // Ataraxia diaria del mes — MISMO cálculo que Dashboard/Estadísticas
+      // (computeDisciplineTimeline), solo filtrado a las fechas de este mes.
+      const opsByDate = new Map<string, DisciplineOperationInput[]>();
+      ops.forEach((op: OperationRecord) => {
+        const list = opsByDate.get(op.entry_date) ?? [];
+        list.push({ model: op.model, session: op.session, brokePlan: op.broke_plan });
+        opsByDate.set(op.entry_date, list);
+      });
+      const monthEntries = Object.fromEntries(
+        Object.entries(disciplineInputs).filter(([date]) => date >= monthStart && date <= monthEnd),
+      );
+      const timeline = computeDisciplineTimeline(monthEntries, opsByDate, plan?.max_trades_per_session ?? null);
+      const ataraxiaAvg =
+        timeline.length > 0 ? Math.round(timeline.reduce((sum, day) => sum + day.score, 0) / timeline.length) : null;
+      const ataraxiaLines = timeline.map((day) => `- ${day.date}: ${day.score}%`).join('\n');
+
+      const tradesCount = ops.length;
+      const winCount = ops.filter((op) => op.outcome === 'TP').length;
+      const lossCount = ops.filter((op) => op.outcome === 'SL').length;
+      const beCount = ops.filter((op) => op.outcome === 'BE').length;
+      const pnlTotal = ops.reduce((sum, op) => sum + (op.pnl ?? 0), 0);
+      const brokePlanCount = ops.filter((op) => op.broke_plan).length;
+
+      const modelStats = new Map<string, { count: number; wins: number; pnl: number }>();
+      ops.forEach((op) => {
+        const key = op.model || 'Sin modelo especificado';
+        const stat = modelStats.get(key) ?? { count: 0, wins: 0, pnl: 0 };
+        stat.count += 1;
+        if (op.outcome === 'TP') stat.wins += 1;
+        stat.pnl += op.pnl ?? 0;
+        modelStats.set(key, stat);
+      });
+      const modelLines = [...modelStats.entries()]
+        .map(
+          ([model, stat]) =>
+            `- ${model}: ${stat.count} trade(s), ${stat.wins}/${stat.count} ganadores, P&L ${stat.pnl >= 0 ? '+' : ''}$${stat.pnl.toFixed(2)}`,
+        )
+        .join('\n');
+
+      const gameStateCounts = { A: 0, B: 0, C: 0 };
+      audits.forEach((audit) => {
+        gameStateCounts[audit.gameState] += 1;
+      });
+
+      const missionEvents = virtusEvents.filter((event) => event.reason.startsWith('Misión completada:'));
+      const missionsCompleted = missionEvents.length;
+      const xpFromMissions = missionEvents.reduce((sum, event) => sum + event.points, 0);
+
+      const strengthsLines = audits.flatMap((a) => a.strengths.map((s) => `- ${s.behavior}`));
+      const weaknessesLines = audits.flatMap((a) => a.weaknesses.map((w) => `- ${w.behavior}`));
+
+      const automaticGoals = (plan?.goals ?? []).filter((goal) => goal.type === 'automatic');
+      const goalsLines =
+        automaticGoals.length > 0
+          ? automaticGoals.map((goal) => `- "${goal.text}": ${goal.progressPct}%`).join('\n')
+          : '(sin metas automáticas definidas)';
+
+      const monthLabel = new Date(`${monthStart}T12:00:00`).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
+
+      const digest = `AUDITORÍA MENSUAL — mes calendario completo de ${monthLabel} (${monthStart} al ${monthEnd}):
+
+Operaciones registradas: ${tradesCount} — ${winCount} ganadoras (TP), ${lossCount} perdedoras (SL), ${beCount} en breakeven.
+P&L neto del mes: ${pnlTotal >= 0 ? '+' : ''}$${pnlTotal.toFixed(2)}
+Rupturas de plan (broke_plan): ${brokePlanCount} de ${tradesCount} operaciones.
+
+Setups/modelos usados este mes:
+${tradesCount > 0 ? modelLines : '(sin operaciones registradas este mes)'}
+
+Evolución diaria de Ataraxia (score de disciplina, 0-100%) este mes:
+${timeline.length > 0 ? ataraxiaLines : '(sin journals sellados este mes)'}
+Promedio del mes: ${ataraxiaAvg !== null ? `${ataraxiaAvg}%` : 'sin datos suficientes'}
+
+Estados mentales registrados (Juego A/B/C, de las auditorías "Auditar Última Sesión" del mes):
+- Juego A: ${gameStateCounts.A} día(s)
+- Juego B: ${gameStateCounts.B} día(s)
+- Juego C: ${gameStateCounts.C} día(s)
+${audits.length === 0 ? '(No hay auditorías de "Auditar Última Sesión" registradas este mes.)' : ''}
+
+Misiones de Omega completadas este mes: ${missionsCompleted}
+XP ganada por esas misiones: ${xpFromMissions} pts
+Virtus total actual de la cuenta: ${virtusTotal} pts
+
+Metas automáticas actuales del Manual Operativo:
+${goalsLines}
+
+Fortalezas identificadas este mes:
+${strengthsLines.length > 0 ? strengthsLines.join('\n') : '(ninguna registrada)'}
+
+Fugas de capital/energía identificadas este mes:
+${weaknessesLines.length > 0 ? weaknessesLines.join('\n') : '(ninguna registrada)'}`;
+
+      const stage = currentStage(virtusTotal);
+      const { data, error: invokeError } = await supabase.functions.invoke('omega-coach', {
+        body: {
+          messages: [{ role: 'user', content: digest }],
+          context: { virtusStage: stage.level, virtusTotal, ataraxiaPct: null, requestType: 'cierre_mensual' },
+        },
+      });
+
+      if (invokeError) {
+        throw new Error(await readFunctionErrorMessage(invokeError, 'No se pudo contactar a Omega.'));
+      }
+
+      const result = data as OmegaResponse;
+      if (!result.ok) throw new Error(result.error);
+
+      try {
+        const close = JSON.parse(stripMarkdownFence(result.reply)) as MonthlyClose;
+        return {
+          close,
+          metrics: {
+            monthLabel,
+            tradesCount,
+            winCount,
+            lossCount,
+            pnlTotal,
+            brokePlanCount,
+            ataraxiaAvg,
+            missionsCompleted,
+            xpFromMissions,
+            monthStart,
+            monthEnd,
+          },
+        };
+      } catch {
+        throw new Error('Omega no devolvió un JSON válido.');
+      }
+    },
+    [user],
+  );
+
   return {
     messages,
     sending,
@@ -574,5 +783,6 @@ ${weaknessesLines.length > 0 ? weaknessesLines.join('\n') : '(ninguna registrada
     requestBriefing,
     requestHeadCoachAudit,
     requestWeeklyRecap,
+    requestMonthlyClose,
   };
 }

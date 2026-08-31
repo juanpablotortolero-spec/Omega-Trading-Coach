@@ -90,12 +90,30 @@ Deno.serve(async (req) => {
     // deno-lint-ignore no-explicit-any
     const conversation: any[] = inMessages.map((m) => ({ role: m.role, content: m.content }));
 
-    // El Head Coach y el Recap Semanal (OmegaDashboard) exigen que la ÚNICA
-    // respuesta sea un JSON puro — si les dejamos tools disponibles, el
-    // modelo podría desviarse a un tool_use en vez de texto. Se omiten del
-    // todo para estas dos llamadas.
+    // Visión: si el hook mandó URLs de capturas reales, el ÚLTIMO mensaje de
+    // usuario (el digest de sesión recién armado) pasa de string plano a un
+    // array de bloques texto+imagen — la API de Anthropic acepta
+    // source:{type:'url', url} directo, sin que el Edge Function tenga que
+    // descargar/codificar nada.
+    if (context.screenshotUrls && context.screenshotUrls.length > 0) {
+      const lastIndex = conversation.length - 1;
+      if (lastIndex >= 0 && conversation[lastIndex].role === 'user' && typeof conversation[lastIndex].content === 'string') {
+        conversation[lastIndex] = {
+          role: 'user',
+          content: [
+            { type: 'text', text: conversation[lastIndex].content },
+            ...context.screenshotUrls.map((url) => ({ type: 'image', source: { type: 'url', url } })),
+          ],
+        };
+      }
+    }
+
+    // El Head Coach, el Recap Semanal y el Cierre de Mes (OmegaDashboard)
+    // exigen que la ÚNICA respuesta sea un JSON puro — si les dejamos tools
+    // disponibles, el modelo podría desviarse a un tool_use en vez de texto.
+    // Se omiten del todo para estas llamadas.
     const isHeadCoach = context.requestType === 'auditoria_head_coach';
-    const isJsonOnlyMode = isHeadCoach || context.requestType === 'recap_semanal';
+    const isJsonOnlyMode = isHeadCoach || context.requestType === 'recap_semanal' || context.requestType === 'cierre_mensual';
 
     let finalText = '';
     for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration += 1) {
@@ -103,8 +121,10 @@ Deno.serve(async (req) => {
         model: MODEL,
         // Estos JSON traen varios arrays/campos largos — con digests reales
         // (Manual Operativo detallado, semana completa) 2048 no alcanza y la
-        // respuesta se corta a mitad del JSON, rompiendo el parseo.
-        max_tokens: isJsonOnlyMode ? 4096 : 2048,
+        // respuesta se corta a mitad del JSON, rompiendo el parseo. La
+        // Auditoría Mensual es la más extensa de todas (varios campos de
+        // varias frases cada uno) — necesita más margen que el resto.
+        max_tokens: context.requestType === 'cierre_mensual' ? 6144 : isJsonOnlyMode ? 4096 : 2048,
         system: buildSystemPrompt(context),
         ...(isJsonOnlyMode ? {} : { tools: OMEGA_TOOLS }),
         messages: conversation,
@@ -131,6 +151,19 @@ Deno.serve(async (req) => {
         });
       }
       conversation.push({ role: 'user', content: toolResults });
+    }
+
+    // El briefing pre-sesión pasa de efímero (sessionStorage) a persistido —
+    // upsert por (user_id, briefing_date): si ya existía (el trader visitó
+    // Dashboard y OmegaDashboard el mismo día), esto solo pisa `content`,
+    // nunca toca `acknowledged_at` (no va en el payload), así que un
+    // briefing ya leído no "reaparece" como no leído por releerlo.
+    if (context.requestType === 'briefing_pre_sesion' && finalText) {
+      const briefingDate = context.sessionDate ?? new Date().toISOString().slice(0, 10);
+      const { error: briefingError } = await adminClient
+        .from('omega_briefings')
+        .upsert({ user_id: user.id, briefing_date: briefingDate, content: finalText }, { onConflict: 'user_id,briefing_date' });
+      if (briefingError) throw briefingError;
     }
 
     // El Head Coach no tiene tools para registrar sus efectos — el JSON
@@ -215,6 +248,34 @@ Deno.serve(async (req) => {
         weekly_verdict: String(parsed.weekly_verdict ?? ''),
         top_strength: String(parsed.top_strength ?? ''),
         critical_leak: String(parsed.critical_leak ?? ''),
+        action_plan: Array.isArray(parsed.action_plan) ? parsed.action_plan.map((step: unknown) => String(step)) : [],
+      });
+    }
+
+    // El Cierre de Mes es efímero, igual que el Recap Semanal — mismo
+    // mecanismo, distinta forma de JSON (mira ~4 semanas en vez de 1).
+    if (context.requestType === 'cierre_mensual') {
+      // deno-lint-ignore no-explicit-any
+      let parsed: any;
+      try {
+        const cleaned = finalText.trim().replace(/^```(?:json)?\s*|\s*```$/g, '');
+        parsed = JSON.parse(cleaned);
+      } catch {
+        return new Response(JSON.stringify({ ok: false, error: 'Omega no devolvió un JSON válido.' }), {
+          status: 502,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      finalText = JSON.stringify({
+        monthly_verdict: String(parsed.monthly_verdict ?? ''),
+        execution_summary: String(parsed.execution_summary ?? ''),
+        psychological_evolution: String(parsed.psychological_evolution ?? ''),
+        top_strength: String(parsed.top_strength ?? ''),
+        critical_leak: String(parsed.critical_leak ?? ''),
+        next_month_objectives: Array.isArray(parsed.next_month_objectives)
+          ? parsed.next_month_objectives.map((step: unknown) => String(step))
+          : [],
         action_plan: Array.isArray(parsed.action_plan) ? parsed.action_plan.map((step: unknown) => String(step)) : [],
       });
     }

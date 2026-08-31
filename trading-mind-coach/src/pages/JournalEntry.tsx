@@ -221,7 +221,13 @@ function JournalEntry() {
   const [selectedFundingAccountIds, setSelectedFundingAccountIds] = useState<string[]>([]);
   const [killSwitchStatus, setKillSwitchStatus] = useState<WeeklyKillSwitchStatus | null>(null);
   const dropZoneRef = useRef<HTMLDivElement>(null);
-  const { evaluateSession, sending: omegaSending, lastEffects: omegaLastEffects, error: omegaError } = useOmega();
+  const {
+    evaluateSession,
+    requestHeadCoachAudit,
+    sending: omegaSending,
+    lastEffects: omegaLastEffects,
+    error: omegaError,
+  } = useOmega();
 
   useEffect(() => {
     if (!user) return;
@@ -690,9 +696,20 @@ function JournalEntry() {
 
       // Auditoría automática de Omega — el sello del journal (lo crítico) ya
       // terminó arriba; esto corre aparte, sin bloquear ni poder invalidar lo
-      // que ya se guardó si Omega falla o tarda.
+      // que ya se guardó si Omega falla o tarda. requestHeadCoachAudit es la
+      // MISMA llamada que antes disparaba el botón "Auditar Última Sesión"
+      // en Omega Coach — ahora se dispara sola al sellar, así las pestañas
+      // Estado/Conversación/Objetivos tienen data real del día sin que el
+      // trader tenga que pedirla a mano.
       setAuditingSession(true);
       evaluateSession(entryToSave.entry_date).catch(() => {});
+      // Segundo bump() cuando esto termina (además del de arriba, que ya
+      // disparó al sellar) — así, si el trader está mirando Omega Coach,
+      // sus pestañas Estado/Conversación/Objetivos se destraban solas en
+      // cuanto la auditoría real está lista, sin que tenga que recargar.
+      requestHeadCoachAudit()
+        .then(() => bump())
+        .catch(() => {});
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo guardar el journal.');
     } finally {

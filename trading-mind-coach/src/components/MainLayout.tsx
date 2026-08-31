@@ -8,6 +8,7 @@ import {
   getPendingFriendRequestsCount,
   getRecentEntrySealStatus,
   getRecentSharesForMe,
+  getTodayBriefingAckStatus,
   getWeeklyKillSwitchStatus,
   touchPresence,
 } from '../lib/api';
@@ -67,6 +68,7 @@ function MainLayout() {
   const [mailboxCount, setMailboxCount] = useState(0);
   const [navOpen, setNavOpen] = useState(false);
   const [journalLocked, setJournalLocked] = useState(false);
+  const [hasUnreadBriefing, setHasUnreadBriefing] = useState(false);
 
   useEffect(() => {
     setNavOpen(false);
@@ -112,6 +114,19 @@ function MainLayout() {
 
     getWeeklyKillSwitchStatus(user.id, new Date()).then((status) => {
       if (!cancelled) setJournalLocked(status.triggered !== null);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user, version]);
+
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+
+    getTodayBriefingAckStatus(user.id, localIsoDate(new Date())).then((status) => {
+      if (!cancelled) setHasUnreadBriefing(status.exists && !status.acknowledged);
     });
 
     return () => {
@@ -198,7 +213,7 @@ function MainLayout() {
                 key={item.label}
                 to={item.path}
                 className={({ isActive }) =>
-                  `nav-item ${isActive ? 'active' : ''} ${item.path === '/journal/nuevo' && journalLocked ? 'locked' : ''}`
+                  `nav-item ${isActive ? 'active' : ''} ${item.path === '/journal/nuevo' && journalLocked ? 'locked' : ''} ${item.path === '/omega-coach' && hasUnreadBriefing ? 'has-glow' : ''}`
                 }
               >
                 {item.label}
@@ -206,6 +221,9 @@ function MainLayout() {
                   <span className="nav-item-lock" title="Cuarentena activa esta semana" aria-hidden="true">
                     🔒
                   </span>
+                )}
+                {item.path === '/omega-coach' && hasUnreadBriefing && (
+                  <span className="nav-notif-dot" title="Briefing pre-sesión sin leer" />
                 )}
                 {item.path === '/social' && pendingRequests > 0 && (
                   <span className="nav-notif-dot" title={`${pendingRequests} solicitud${pendingRequests === 1 ? '' : 'es'} pendiente${pendingRequests === 1 ? '' : 's'}`} />
