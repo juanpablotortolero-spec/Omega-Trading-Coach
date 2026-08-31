@@ -195,12 +195,9 @@ function MainLayout() {
       <aside className={`sidebar panel ${navOpen ? 'open' : ''}`}>
         <Link to="/dashboard" className="brand-crest">
           <div className="brand-crest-mark-wrap">
-            <span className="brand-crest-ring" aria-hidden="true" />
-            <div className="brand-crest-mark">
-              <span className="brand-crest-glyph">
-                <OmegaMark size={70} />
-              </span>
-            </div>
+            <span className="brand-crest-glyph">
+              <OmegaMark size={100} />
+            </span>
           </div>
           <span className="brand-crest-divider" aria-hidden="true" />
           <h1 className="brand-crest-title">Omega</h1>
