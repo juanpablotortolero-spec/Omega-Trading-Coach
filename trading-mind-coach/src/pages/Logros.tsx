@@ -27,7 +27,7 @@ function MissionMedalCard({ label, totalCompletions }: MissionMedalCardProps) {
 
   return (
     <div className="panel medal-card">
-      <MissionBadge tier={progress.tierName} size={72} />
+      <MissionBadge tier={progress.tierName} size={84} />
       <span className="medal-card-title">{label}</span>
       <span className="medal-card-tier">
         {progress.tierName ? progress.tierName : 'Sin medalla todavía'}
