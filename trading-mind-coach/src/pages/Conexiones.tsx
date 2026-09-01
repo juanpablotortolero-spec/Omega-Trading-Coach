@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import ConexionesInfoModal from '../components/ConexionesInfoModal';
 import FundingAccountCard from '../components/FundingAccountCard';
 import FundingHistoryModal from '../components/FundingHistoryModal';
 import { useAuth } from '../contexts/AuthContext';
@@ -22,6 +23,7 @@ function Conexiones() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
 
   const [formOpen, setFormOpen] = useState(false);
   const [accountName, setAccountName] = useState('');
@@ -111,6 +113,14 @@ function Conexiones() {
   return (
     <>
       <header className="topbar panel">
+        <button
+          type="button"
+          className="info-btn"
+          onClick={() => setInfoOpen(true)}
+          aria-label="Cómo funciona Conexiones"
+        >
+          ℹ
+        </button>
         <div>
           <p className="eyebrow">Gestión de capital</p>
           <h2>Gestor de Cuentas de Fondeo</h2>
@@ -254,6 +264,8 @@ function Conexiones() {
           accounts={accounts}
         />
       )}
+
+      <ConexionesInfoModal open={infoOpen} onClose={() => setInfoOpen(false)} />
     </>
   );
 }

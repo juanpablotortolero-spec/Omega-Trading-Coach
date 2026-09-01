@@ -3,6 +3,7 @@ import BriefingHistoryCalendar from '../components/BriefingHistoryCalendar';
 import BriefingPreSesion from '../components/BriefingPreSesion';
 import MissionCard from '../components/MissionCard';
 import MonthlyCloseModal from '../components/MonthlyCloseModal';
+import OmegaDashboardInfoModal from '../components/OmegaDashboardInfoModal';
 import OmegaMark from '../components/OmegaMark';
 import PsychoProfileCard from '../components/PsychoProfileCard';
 import RiskManagerPanel from '../components/RiskManagerPanel';
@@ -14,6 +15,7 @@ import { useRefresh } from '../contexts/RefreshContext';
 import type { HeadCoachAudit, MonthlyCloseResult, WeeklyRecapResult } from '../hooks/useOmegaAgent';
 import {
   acknowledgeBriefing,
+  acknowledgeOmegaAudit,
   getAiMissions,
   getFundingAccountsWithTrend,
   getJournalEntryByDate,
@@ -75,6 +77,8 @@ function OmegaDashboard() {
   const [generatingWeekKey, setGeneratingWeekKey] = useState<string | null>(null);
   const [recapError, setRecapError] = useState<string | null>(null);
 
+  const [infoOpen, setInfoOpen] = useState(false);
+
   const [monthlyResult, setMonthlyResult] = useState<MonthlyCloseResult | null>(null);
   const [monthlyOpen, setMonthlyOpen] = useState(false);
   const [monthlyLoading, setMonthlyLoading] = useState(false);
@@ -120,6 +124,22 @@ function OmegaDashboard() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, version]);
+
+  // "Tu análisis post-sesión está listo" se marca leído en cuanto el trader
+  // efectivamente abre Estado o Conversación con la auditoría de hoy ya
+  // cargada — sin botón extra, mismo espíritu que el contrato del briefing
+  // pero sin requerir un click aparte. auditAckSentRef evita reintentos en
+  // cada render mientras el tab sigue abierto.
+  const auditAckSentRef = useRef(false);
+  useEffect(() => {
+    if (!user || !audit) return;
+    if (activeTab !== 'estado' && activeTab !== 'conversacion') return;
+    if (auditAckSentRef.current) return;
+    auditAckSentRef.current = true;
+    acknowledgeOmegaAudit(user.id, todayIso).catch(() => {
+      auditAckSentRef.current = false;
+    });
+  }, [user, audit, activeTab, todayIso]);
 
   // Estado/Conversación/Objetivos se destraban recién cuando HOY quedó
   // sellado — la auditoría automática (disparada al sellar, ver
@@ -279,6 +299,14 @@ function OmegaDashboard() {
   return (
     <div className="omega-hq">
       <header className="omega-hq-header">
+        <button
+          type="button"
+          className="info-btn"
+          onClick={() => setInfoOpen(true)}
+          aria-label="Cómo funciona Omega Coach"
+        >
+          ℹ
+        </button>
         <OmegaMark size={40} />
         <div className="omega-hq-header-copy">
           <h2>Omega — Head Coach</h2>
@@ -288,6 +316,7 @@ function OmegaDashboard() {
 
       <WeeklyRecapModal open={recapOpen} onClose={() => setRecapOpen(false)} result={recapResult} />
       <MonthlyCloseModal open={monthlyOpen} onClose={() => setMonthlyOpen(false)} result={monthlyResult} />
+      <OmegaDashboardInfoModal open={infoOpen} onClose={() => setInfoOpen(false)} />
 
       <div className="plan-tabs">
         {TABS.map((tab) => (

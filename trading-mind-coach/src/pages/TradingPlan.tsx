@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import TradingPlanInfoModal from '../components/TradingPlanInfoModal';
 import { useAuth } from '../contexts/AuthContext';
 import { autoGrow } from '../lib/autoGrow';
 import {
@@ -43,6 +44,7 @@ function newGoal(): GoalItem {
 function TradingPlan() {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<PlanTab>('plan');
+  const [infoOpen, setInfoOpen] = useState(false);
   const [plan, setPlan] = useState<TradingPlanData>(emptyTradingPlan);
   const [template, setTemplate] = useState<JournalTemplateSections>(defaultTemplateSections());
   const [loading, setLoading] = useState(true);
@@ -140,6 +142,14 @@ function TradingPlan() {
   return (
     <>
       <header className="topbar panel">
+        <button
+          type="button"
+          className="info-btn"
+          onClick={() => setInfoOpen(true)}
+          aria-label="Cómo funciona el Manual Operativo"
+        >
+          ℹ
+        </button>
         <div>
           <p className="eyebrow">Configuración</p>
           <h2>Manual Operativo</h2>
@@ -817,6 +827,8 @@ function TradingPlan() {
       </section>
         </>
       )}
+
+      <TradingPlanInfoModal open={infoOpen} onClose={() => setInfoOpen(false)} />
     </>
   );
 }

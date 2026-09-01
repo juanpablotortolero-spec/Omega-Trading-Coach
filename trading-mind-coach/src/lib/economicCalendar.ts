@@ -37,6 +37,42 @@ export async function getWeeklyEconomicEvents(): Promise<EconomicEvent[]> {
   return events;
 }
 
+const NEWS_UTC_OFFSET_STORAGE_KEY = 'pat_news_utc_offset';
+
+/** Offset UTC elegido por el trader para mostrar horas de noticias — mismo patrón try/catch que loadStoredNewsFilter en JournalEntry.tsx. */
+export function loadStoredNewsUtcOffset(): number {
+  try {
+    const raw = localStorage.getItem(NEWS_UTC_OFFSET_STORAGE_KEY);
+    if (raw === null) return 0;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : 0;
+  } catch {
+    return 0;
+  }
+}
+
+export function saveStoredNewsUtcOffset(offset: number): void {
+  try {
+    localStorage.setItem(NEWS_UTC_OFFSET_STORAGE_KEY, String(offset));
+  } catch {
+    // localStorage puede fallar (modo privado, cuota) — la preferencia simplemente no persiste.
+  }
+}
+
+/**
+ * Formatea la hora de un evento en el UTC elegido — centraliza lo que antes
+ * era `toLocaleTimeString` sin `timeZone` duplicado en JournalEntry.tsx y
+ * useOmegaAgent.ts. `Etc/GMT` invierte el signo del offset (Etc/GMT+5 = UTC-5).
+ */
+export function formatEventTime(dateStr: string, utcOffset: number): string {
+  const sign = utcOffset >= 0 ? '-' : '+';
+  return new Date(dateStr).toLocaleTimeString('es-ES', {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: `Etc/GMT${sign}${Math.abs(utcOffset)}`,
+  });
+}
+
 export function getEventsForDate(events: EconomicEvent[], isoDate: string): EconomicEvent[] {
   return events
     .filter((event) => localIsoDate(new Date(event.date)) === isoDate)

@@ -2192,6 +2192,34 @@ export async function getTodayOmegaAudit(userId: string, todayIso: string): Prom
   return data as OmegaAuditRow | null;
 }
 
+/** Mismo patrón que getTodayBriefingAckStatus — "tu análisis post-sesión está listo" sin leer todavía. */
+export async function getTodayOmegaAuditAckStatus(
+  userId: string,
+  todayIso: string,
+): Promise<{ exists: boolean; acknowledged: boolean }> {
+  const { data, error } = await supabase
+    .from('omega_audits')
+    .select('acknowledged_at')
+    .eq('user_id', userId)
+    .eq('audit_date', todayIso)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return { exists: false, acknowledged: false };
+  return { exists: true, acknowledged: data.acknowledged_at !== null };
+}
+
+/** Se marca "leída" cuando el trader efectivamente abre Omega Coach con la auditoría de hoy cargada — sin botón extra. */
+export async function acknowledgeOmegaAudit(userId: string, todayIso: string): Promise<void> {
+  const { error } = await supabase
+    .from('omega_audits')
+    .update({ acknowledged_at: new Date().toISOString() })
+    .eq('user_id', userId)
+    .eq('audit_date', todayIso);
+
+  if (error) throw error;
+}
+
 export type AiSessionVerdict = {
   id: string;
   session_date: string;

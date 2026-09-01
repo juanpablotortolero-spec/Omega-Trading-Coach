@@ -750,6 +750,28 @@ h1, h2, h3, .brand-mark {
   white-space: nowrap;
 }
 
+.econ-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.news-utc-select {
+  font: inherit;
+  font-size: 0.82rem;
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.065);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  padding: 0.4rem 0.7rem;
+  outline: none;
+}
+
+.news-utc-select:focus {
+  border-color: rgba(201, 166, 107, 0.55);
+}
+
 .filter-active-chip {
   padding: 0.2rem 0.6rem;
   border-radius: 999px;
@@ -5719,6 +5741,7 @@ textarea {
   display: flex;
   align-items: center;
   gap: 16px;
+  position: relative;
 }
 
 .omega-hq-header h2 {
@@ -6290,4 +6313,169 @@ h3.omega-section-title,
   border: 1px solid rgba(201, 166, 107, 0.4);
   background: rgba(201, 166, 107, 0.08);
   color: var(--accent-gold);
+}
+
+/* Carrusel de onboarding — por encima de todo lo demás (omega-alert=90). */
+.onboarding-backdrop {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(6, 8, 12, 0.82);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  z-index: 100;
+  padding: 24px;
+  animation: fade-in 0.3s ease;
+}
+
+.onboarding-panel {
+  width: min(760px, 100%);
+  max-height: 92vh;
+  overflow-y: auto;
+  background: rgba(15, 19, 26, 0.98);
+  border: 1px solid var(--border-subtle);
+  border-radius: 22px;
+  box-shadow: var(--shadow-soft);
+  display: flex;
+  flex-direction: column;
+}
+
+.onboarding-eyebrow-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px 0;
+}
+
+.onboarding-skip-btn {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.onboarding-skip-btn:hover {
+  color: var(--text-primary);
+}
+
+.onboarding-media {
+  position: relative;
+  margin: 16px 24px 0;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  aspect-ratio: 16 / 10;
+  background: linear-gradient(160deg, rgba(74, 107, 130, 0.18), rgba(21, 26, 34, 0.9));
+}
+
+.onboarding-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.onboarding-media-fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Cinzel', serif;
+  color: var(--accent-gold);
+  opacity: 0.5;
+  font-size: 3rem;
+}
+
+.onboarding-callout {
+  position: absolute;
+  max-width: 220px;
+  padding: 10px 13px;
+  border-radius: 12px;
+  background: rgba(21, 26, 34, 0.88);
+  backdrop-filter: blur(10px) saturate(140%);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+  border: 1px solid rgba(201, 166, 107, 0.5);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--text-primary);
+  transform: translate(-50%, -50%);
+}
+
+.onboarding-callout::before {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border: 1px solid rgba(201, 166, 107, 0.35);
+  border-radius: 16px;
+  pointer-events: none;
+  animation: onboarding-callout-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes onboarding-callout-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+.onboarding-body {
+  padding: 18px 24px 8px;
+}
+
+.onboarding-body h2 {
+  font-family: 'Cinzel', serif;
+  font-size: 1.25rem;
+  color: var(--accent-gold);
+  margin: 0 0 8px;
+}
+
+.onboarding-body p {
+  margin: 0;
+  line-height: 1.6;
+  color: var(--text-primary);
+}
+
+.onboarding-cta-slide {
+  padding: 40px 24px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.onboarding-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 24px 22px;
+}
+
+.onboarding-dots {
+  display: flex;
+  gap: 7px;
+}
+
+.onboarding-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--border-subtle);
+  transition: background 0.25s ease, transform 0.25s ease;
+}
+
+.onboarding-dot.active {
+  background: var(--accent-gold);
+  transform: scale(1.3);
+}
+
+.onboarding-nav-actions {
+  display: flex;
+  gap: 8px;
 }

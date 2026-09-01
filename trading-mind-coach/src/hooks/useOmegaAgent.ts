@@ -29,7 +29,14 @@ import {
 } from '../lib/api';
 import { localIsoDate } from '../lib/calendar';
 import { computeDisciplineScore, computeDisciplineTimeline, type DisciplineOperationInput } from '../lib/disciplineScore';
-import { getEventsForDate, getWeeklyEconomicEvents, isWithinFetchedWeek, type EconomicEvent } from '../lib/economicCalendar';
+import {
+  formatEventTime,
+  getEventsForDate,
+  getWeeklyEconomicEvents,
+  isWithinFetchedWeek,
+  loadStoredNewsUtcOffset,
+  type EconomicEvent,
+} from '../lib/economicCalendar';
 import { computeDangerPct } from '../lib/risk';
 import { currentStage } from '../lib/virtus';
 
@@ -270,7 +277,7 @@ function buildBriefingDigest(
       ? '(fuera del rango de fechas que cubre el calendario esta semana)'
       : todayHighImpactEvents.length > 0
         ? todayHighImpactEvents
-            .map((event) => `- ${new Date(event.date).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })} ${event.title} (${event.country})`)
+            .map((event) => `- ${formatEventTime(event.date, loadStoredNewsUtcOffset())} ${event.title} (${event.country})`)
             .join('\n')
         : '(ninguna reconocida para hoy)';
 

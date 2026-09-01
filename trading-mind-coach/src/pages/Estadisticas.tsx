@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type MouseEvent } from 'react';
+import EstadisticasInfoModal from '../components/EstadisticasInfoModal';
 import { useAuth } from '../contexts/AuthContext';
 import { useRefresh } from '../contexts/RefreshContext';
 import {
@@ -80,6 +81,7 @@ function Estadisticas() {
   const [period, setPeriod] = useState<Period>('month');
   const [filterOpen, setFilterOpen] = useState(false);
   const [areteRange, setAreteRange] = useState<AreteRange>('month');
+  const [infoOpen, setInfoOpen] = useState(false);
   const [areteFilterOpen, setAreteFilterOpen] = useState(false);
 
   const now = new Date();
@@ -294,6 +296,14 @@ function Estadisticas() {
   return (
     <>
       <header className="topbar panel">
+        <button
+          type="button"
+          className="info-btn"
+          onClick={() => setInfoOpen(true)}
+          aria-label="Cómo funcionan las Estadísticas"
+        >
+          ℹ
+        </button>
         <div>
           <p className="eyebrow">Rendimiento</p>
           <h2>Estadísticas</h2>
@@ -615,6 +625,8 @@ function Estadisticas() {
           </section>
         </>
       )}
+
+      <EstadisticasInfoModal open={infoOpen} onClose={() => setInfoOpen(false)} />
     </>
   );
 }

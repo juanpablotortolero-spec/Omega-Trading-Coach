@@ -13,9 +13,12 @@ import {
   touchPresence,
 } from '../lib/api';
 import { localIsoDate } from '../lib/calendar';
+import { getNotificationPermission, requestNotificationPermission, type NotificationPermissionState } from '../lib/desktopNotifications';
+import { useDesktopNotifications } from '../hooks/useDesktopNotifications';
 import OmegaAlertModal from './OmegaAlertModal';
 import OmegaChat from './OmegaChat';
 import OmegaMark from './OmegaMark';
+import OnboardingCarousel from './OnboardingCarousel';
 
 const navItems = [
   { label: 'Inicio', path: '/dashboard' },
@@ -69,6 +72,41 @@ function MainLayout() {
   const [navOpen, setNavOpen] = useState(false);
   const [journalLocked, setJournalLocked] = useState(false);
   const [hasUnreadBriefing, setHasUnreadBriefing] = useState(false);
+  const [notifPermission, setNotifPermission] = useState<NotificationPermissionState>('default');
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
+  useDesktopNotifications();
+
+  useEffect(() => {
+    setNotifPermission(getNotificationPermission());
+  }, []);
+
+  const handleEnableNotifications = async () => {
+    const result = await requestNotificationPermission();
+    setNotifPermission(result);
+  };
+
+  // Se muestra una sola vez por usuario — se marca "visto" recién al
+  // cerrarlo, así un refresh a mitad del carrusel no lo pierde.
+  useEffect(() => {
+    if (!user) return;
+    try {
+      const seen = localStorage.getItem(`omega_onboarding_seen_${user.id}`);
+      if (!seen) setShowOnboarding(true);
+    } catch {
+      // localStorage no disponible — se omite el onboarding en vez de romper la app.
+    }
+  }, [user]);
+
+  const handleCloseOnboarding = () => {
+    setShowOnboarding(false);
+    if (!user) return;
+    try {
+      localStorage.setItem(`omega_onboarding_seen_${user.id}`, '1');
+    } catch {
+      // Si falla, en la próxima visita simplemente se vuelve a mostrar.
+    }
+  };
 
   useEffect(() => {
     setNavOpen(false);
@@ -242,6 +280,26 @@ function MainLayout() {
           <div className="stat-header">
             <span>{user?.email}</span>
           </div>
+          {notifPermission !== 'unsupported' && (
+            <button
+              type="button"
+              className="ghost-btn btn-sm notif-toggle-btn"
+              onClick={handleEnableNotifications}
+              disabled={notifPermission === 'granted' || notifPermission === 'denied'}
+              title={
+                notifPermission === 'denied'
+                  ? 'Bloqueadas en el navegador — habilitalas desde su configuración de sitio.'
+                  : undefined
+              }
+            >
+              🔔{' '}
+              {notifPermission === 'granted'
+                ? 'Notificaciones activadas'
+                : notifPermission === 'denied'
+                  ? 'Notificaciones bloqueadas'
+                  : 'Activar notificaciones'}
+            </button>
+          )}
           <button className="ghost-btn" onClick={signOut}>
             Cerrar sesión
           </button>
@@ -255,6 +313,7 @@ function MainLayout() {
 
       <OmegaChat />
       <OmegaAlertModal />
+      {showOnboarding && <OnboardingCarousel onClose={handleCloseOnboarding} />}
     </OmegaProvider>
   );
 }

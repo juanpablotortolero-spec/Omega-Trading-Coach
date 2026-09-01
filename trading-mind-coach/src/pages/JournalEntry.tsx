@@ -55,9 +55,12 @@ import {
 import { localIsoDate } from '../lib/calendar';
 import {
   findPlanNewsWarnings,
+  formatEventTime,
   getEventsForDate,
   getWeeklyEconomicEvents,
   isWithinFetchedWeek,
+  loadStoredNewsUtcOffset,
+  saveStoredNewsUtcOffset,
   type EconomicEvent,
 } from '../lib/economicCalendar';
 import {
@@ -201,6 +204,7 @@ function JournalEntry() {
   const [hiddenCurrencies, setHiddenCurrencies] = useState<Set<string>>(
     () => new Set(loadStoredNewsFilter().hiddenCurrencies),
   );
+  const [newsUtcOffset, setNewsUtcOffset] = useState<number>(() => loadStoredNewsUtcOffset());
 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -448,6 +452,11 @@ function JournalEntry() {
 
   const updateOperation = (id: string, patch: Partial<OperationItem>) => {
     setOperations((current) => current.map((op) => (op.id === id ? { ...op, ...patch } : op)));
+  };
+
+  const handleNewsUtcOffsetChange = (offset: number) => {
+    setNewsUtcOffset(offset);
+    saveStoredNewsUtcOffset(offset);
   };
 
   const toggleFundingAccount = (accountId: string) => {
@@ -881,22 +890,40 @@ function JournalEntry() {
         <section className="panel plan-section je-section">
           <div className="section-header">
             <h3>Eventos macroeconómicos</h3>
-            {!econLoading && !econError && econEvents.length > 0 && (
-              <button
-                type="button"
-                className="ghost-btn btn-sm filter-toggle-btn"
-                onClick={() => setEconFilterOpen((open) => !open)}
-              >
-                Filtrar
-                {(hiddenImpacts.size > 0 || hiddenCurrencies.size > 0) && (
-                  <span className="filter-active-chip">
-                    {availableImpacts.length - hiddenImpacts.size}/{availableImpacts.length} impacto ·{' '}
-                    {availableCurrencies.length - hiddenCurrencies.size}/{availableCurrencies.length} índices
-                  </span>
-                )}
-                {econFilterOpen ? '▴' : '▾'}
-              </button>
-            )}
+            <div className="econ-header-actions">
+              {!econLoading && !econError && econEvents.length > 0 && (
+                <select
+                  className="news-utc-select"
+                  value={newsUtcOffset}
+                  onChange={(event) => handleNewsUtcOffsetChange(Number(event.target.value))}
+                  aria-label="Zona horaria de las noticias"
+                  title="Zona horaria de las noticias"
+                >
+                  {Array.from({ length: 27 }, (_, i) => i - 12).map((offset) => (
+                    <option key={offset} value={offset}>
+                      UTC{offset >= 0 ? '+' : ''}
+                      {offset}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {!econLoading && !econError && econEvents.length > 0 && (
+                <button
+                  type="button"
+                  className="ghost-btn btn-sm filter-toggle-btn"
+                  onClick={() => setEconFilterOpen((open) => !open)}
+                >
+                  Filtrar
+                  {(hiddenImpacts.size > 0 || hiddenCurrencies.size > 0) && (
+                    <span className="filter-active-chip">
+                      {availableImpacts.length - hiddenImpacts.size}/{availableImpacts.length} impacto ·{' '}
+                      {availableCurrencies.length - hiddenCurrencies.size}/{availableCurrencies.length} índices
+                    </span>
+                  )}
+                  {econFilterOpen ? '▴' : '▾'}
+                </button>
+              )}
+            </div>
           </div>
 
           {planNewsWarnings.length > 0 && (
@@ -964,9 +991,7 @@ function JournalEntry() {
             <div className="econ-event-list">
               {filteredEconEvents.map((event, index) => (
                 <div className="econ-event-row" key={index}>
-                  <span className="econ-event-time">
-                    {new Date(event.date).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
-                  </span>
+                  <span className="econ-event-time">{formatEventTime(event.date, newsUtcOffset)}</span>
                   <span className="econ-event-currency">{event.country}</span>
                   <span className={`econ-impact-badge ${event.impact.toLowerCase()}`}>{event.impact}</span>
                   <span className="econ-event-title">{event.title}</span>
