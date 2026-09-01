@@ -1004,9 +1004,10 @@ tbody tr:hover {
 
 /* Sin aro ni fondo circular — el emblema respira suelto sobre la tarjeta, el
    glow (en .badge-mark-icon) es lo único que lo enmarca, igual que las
-   medallas del Museo. Ahora es un botón: flota suavemente en reposo y se
-   eleva más al pasar el mouse o enfocarlo, invitando a tocarlo para abrir
-   el Mapa de Rangos. */
+   medallas del Museo. Ahora es un botón: en reposo queda quieto, y solo
+   levita al pasar el mouse o enfocarlo — mismo lenguaje de hover que el
+   resto de la app (tarjetas, pestañas, botones), invitando a tocarlo para
+   abrir el Mapa de Rangos. */
 .badge-mark {
   display: grid;
   place-items: center;
@@ -1018,24 +1019,17 @@ tbody tr:hover {
   background: none;
   padding: 0;
   cursor: pointer;
-  animation: badge-mark-float 5s ease-in-out infinite;
-  transition: transform 0.35s ease;
+  transition: transform 0.25s ease;
 }
 
 .badge-mark:hover,
 .badge-mark:focus-visible {
-  transform: translateY(-10px) scale(1.05);
-  animation-play-state: paused;
+  transform: translateY(-2px);
 }
 
 .badge-mark:focus-visible {
   outline: 2px solid var(--accent-gold);
   outline-offset: 6px;
-}
-
-@keyframes badge-mark-float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-7px); }
 }
 
 .badge-mark.bronze {
@@ -5283,7 +5277,6 @@ textarea {
 @media (prefers-reduced-motion: reduce) {
   .gauge-fill,
   .brand-crest-mark,
-  .badge-mark,
   .badge-mark-icon,
   .mailbox-badge,
   .ataraxia-knob {
