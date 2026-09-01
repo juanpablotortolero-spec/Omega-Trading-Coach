@@ -25,8 +25,8 @@ const SLIDES: Slide[] = [
     body: 'Tu centro de mando: tu rango Virtus, tu Ataraxia del día, tus misiones activas y el calendario de tus journals — todo en una sola vista.',
     image: '/assets/onboarding/dashboard.png',
     callouts: [
-      { top: '18%', left: '20%', text: 'Tu rango Virtus y tu XP acumulado — nunca baja, solo refleja tu historial.' },
-      { top: '55%', left: '75%', text: 'Centro de Misiones Activas — lo que yo te voy asignando según lo que veo.' },
+      { top: '37%', left: '48%', text: 'Misiones de Hoy — lo que te propongo cumplir en el día a día.' },
+      { top: '31%', left: '84%', text: 'Tu rango, tu XP y tu Ataraxia real — nunca se inventan, salen de tu journal.' },
     ],
   },
   {
@@ -35,8 +35,8 @@ const SLIDES: Slide[] = [
     body: 'Tu registro diario en 3 fases: Pre-sesión, Ejecución y Post-mercado. Cada fase se sella por separado — una vez sellada, queda congelada para siempre.',
     image: '/assets/onboarding/journal.png',
     callouts: [
-      { top: '25%', left: '50%', text: 'Directriz operativa: escribí tu plan ANTES de operar, no después.' },
-      { top: '70%', left: '30%', text: 'Cada operación exige al menos una captura del setup ejecutado.' },
+      { top: '60%', left: '58%', text: 'Directriz operativa: escribí tu plan ANTES de operar, no después.' },
+      { top: '80%', left: '85%', text: 'Elegí en qué UTC ver las horas de las noticias económicas.' },
     ],
   },
   {
@@ -44,28 +44,62 @@ const SLIDES: Slide[] = [
     title: 'Manual Operativo',
     body: 'El corazón de tu sistema. Tu gestión de riesgo, tus reglas psicológicas y tus setups — es exactamente lo que yo uso para auditar cada sesión tuya.',
     image: '/assets/onboarding/manual-operativo.png',
-    callouts: [{ top: '35%', left: '50%', text: 'Todo se guarda solo, mientras escribís — sin botón de guardar.' }],
+    callouts: [
+      { top: '30%', left: '26%', text: 'Plan y Personalización — tus reglas y tu plantilla de journal.' },
+      { top: '15%', left: '85%', text: 'Todo se guarda solo, mientras escribís — sin botón de guardar.' },
+    ],
   },
   {
     key: 'estadisticas',
     title: 'Estadísticas',
     body: 'Números reales de tu ejecución — nunca proyecciones. Winrate por modelo, P&L y tu curva de Ataraxia en el tiempo.',
     image: '/assets/onboarding/estadisticas.png',
-    callouts: [{ top: '40%', left: '65%', text: 'Filtrá por día, semana, mes o todo tu historial.' }],
+    callouts: [{ top: '13%', left: '85%', text: 'Filtrá por día, semana, mes, año o todo tu historial.' }],
   },
   {
     key: 'omega-coach',
     title: 'Omega Coach',
     body: 'Tu centro de mando conmigo: briefing antes de operar, tu estado psicológico, mi análisis de tu sesión y las misiones que te voy dejando.',
     image: '/assets/onboarding/omega-coach.png',
-    callouts: [{ top: '20%', left: '50%', text: '4 pestañas — las últimas 3 se destraban al sellar tu journal del día.' }],
+    callouts: [
+      { top: '16%', left: '41%', text: '4 pestañas — las últimas 3 se destraban al sellar tu journal del día.' },
+      { top: '80%', left: '58%', text: 'Aceptá el plan de acción de hoy para cerrar el briefing.' },
+    ],
+  },
+  {
+    key: 'historial',
+    title: 'Historial',
+    body: 'Tu bitácora completa. Tocá cualquier día para ver o retomar ese journal, y revisá tus semanas y meses pasados de un vistazo.',
+    image: '/assets/onboarding/historial.png',
+    callouts: [{ top: '13%', left: '85%', text: 'Cambiá entre vista de Mes o de Año.' }],
+  },
+  {
+    key: 'buzon',
+    title: 'Buzón',
+    body: 'Tus solicitudes de amistad, las invitaciones a Ágoras y los journals que te comparten — todo llega acá.',
+    image: '/assets/onboarding/buzon.png',
+    callouts: [{ top: '29%', left: '58%', text: 'Solicitudes de amistad y de Ágoras pendientes.' }],
+  },
+  {
+    key: 'fraternidad',
+    title: 'Fraternidad',
+    body: 'Agregá amigos reales, comparen su progreso y mándense feedback directo sobre sus journals.',
+    image: '/assets/onboarding/fraternidad.png',
+    callouts: [{ top: '16%', left: '79%', text: 'Agregá un amigo por su correo.' }],
+  },
+  {
+    key: 'agoras',
+    title: 'Ágoras',
+    body: 'Círculos cerrados de traders. Creá el tuyo o unite a uno para compartir tu journal con todo el grupo de una vez.',
+    image: '/assets/onboarding/agoras.png',
+    callouts: [{ top: '39%', left: '58%', text: 'Creá tu propia Ágora con un nombre.' }],
   },
   {
     key: 'conexiones',
     title: 'Conexiones',
     body: 'Tus cuentas de fondeo reales. Vinculá tus operaciones a una cuenta y el balance se ajusta solo al sellar — yo vigilo el drawdown de cada una.',
     image: '/assets/onboarding/conexiones.png',
-    callouts: [{ top: '60%', left: '50%', text: 'Si una cuenta se acerca a su límite de pérdida, te lo advierto activamente.' }],
+    callouts: [{ top: '14%', left: '87%', text: 'Registrá tu primera cuenta acá.' }],
   },
 ];
 

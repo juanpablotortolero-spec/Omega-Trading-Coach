@@ -93,7 +93,9 @@ function OmegaChat() {
         onClick={() => setOpen((v) => !v)}
         aria-label={open ? 'Cerrar a Omega' : 'Abrir a Omega'}
       >
-        <OmegaMark size={44} />
+        <span className="omega-launcher-glyph">
+          <OmegaMark size={58} />
+        </span>
         {uiAlerts.length > 0 && <span className="omega-launcher-badge" aria-hidden="true" />}
       </button>
 

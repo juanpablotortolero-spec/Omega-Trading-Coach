@@ -94,7 +94,7 @@ function Login() {
       <div className="panel auth-card">
         <div className="brand-block">
           <div className="brand-mark">
-            <OmegaMark size={44} />
+            <OmegaMark size={84} />
           </div>
           <div>
             <h1>Omega</h1>

@@ -11,6 +11,7 @@ import {
 } from '../lib/api';
 import { isOnline, lastSeenLabel } from '../lib/presence';
 import { stageBadges } from '../lib/virtus';
+import UserEmblem from '../components/UserEmblem';
 import VirtusIcon, { type VirtusLevel } from '../components/VirtusIcon';
 
 function stageAccent(level: string | null) {
@@ -166,7 +167,7 @@ function Social() {
               const level = friendStages[friend.userId];
               return (
                 <div className="friend-row" key={friend.userId}>
-                  <span className="friend-avatar">{friend.label.slice(0, 2).toUpperCase()}</span>
+                  <UserEmblem letter={friend.label.slice(0, 1).toUpperCase()} size={36} />
                   <span
                     className={`presence-dot ${isOnline(friend.lastSeenAt) ? 'online' : 'offline'}`}
                     title={lastSeenLabel(friend.lastSeenAt)}

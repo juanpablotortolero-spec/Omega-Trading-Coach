@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { autoGrow } from '../lib/autoGrow';
 import { stageBadges } from '../lib/virtus';
+import UserEmblem from '../components/UserEmblem';
 import VirtusIcon, { type VirtusLevel } from '../components/VirtusIcon';
 import {
   addAgoraMember,
@@ -454,7 +455,7 @@ function AgoraDetail() {
                   const level = memberStages[member.userId];
                   return (
                     <div className="friend-row agora-member-row" key={member.userId}>
-                      <span className="friend-avatar">{member.label.slice(0, 2).toUpperCase()}</span>
+                      <UserEmblem letter={member.label.slice(0, 1).toUpperCase()} size={36} />
                       <span className="friend-name">{member.label}</span>
                       <RankBadge level={level} size="large" />
                       <span className="agora-row-spacer" />
@@ -646,7 +647,7 @@ function AgoraDetail() {
                         onClick={() => navigate(`/social/entrada/${share.journalEntryId}`)}
                       >
                         <div className="agora-journal-who">
-                          <span className="friend-avatar">{share.fromLabel.slice(0, 2).toUpperCase()}</span>
+                          <UserEmblem letter={share.fromLabel.slice(0, 1).toUpperCase()} size={32} />
                           <span className="agora-journal-name">{share.fromLabel}</span>
                           <RankBadge level={level} size="small" />
                         </div>
