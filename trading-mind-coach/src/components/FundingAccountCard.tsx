@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { FundingAccount } from '../lib/api';
+import { computeDangerPct, RISK_LOCK_DANGER_PCT } from '../lib/risk';
 
 function clampPct(value: number): number {
   if (!Number.isFinite(value)) return 0;
@@ -32,6 +33,9 @@ function FundingAccountCard({
   const startPct = clampPct(((startingBalance - drawdownLimit) / sliderRange) * 100);
   const currentPct = clampPct(((currentBalance - drawdownLimit) / sliderRange) * 100);
 
+  const dangerPct = computeDangerPct(startingBalance, currentBalance, drawdownLimit);
+  const atRisk = dangerPct >= RISK_LOCK_DANGER_PCT;
+
   const handleSave = async () => {
     const parsed = Number(draftBalance);
     if (!Number.isFinite(parsed)) return;
@@ -61,6 +65,9 @@ function FundingAccountCard({
         {account.accountNumber && <span className="hint-text">#{account.accountNumber}</span>}
         <span className={`funding-chip status ${account.status}`}>{STATUS_LABEL[account.status]}</span>
         {dailyLossLimit !== null && <span className="funding-chip dll">DLL</span>}
+        <span className={`funding-chip risk ${atRisk ? 'danger' : ''}`} title="% de distancia consumida hacia el límite de pérdida (MLL)">
+          Drawdown {dangerPct}%
+        </span>
       </div>
 
       <div className="funding-data-grid">

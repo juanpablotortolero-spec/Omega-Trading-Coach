@@ -2541,6 +2541,18 @@ textarea {
   background: rgba(74, 107, 130, 0.12);
 }
 
+.funding-chip.risk {
+  border-color: rgba(82, 121, 111, 0.4);
+  color: var(--trade-bullish);
+  background: rgba(82, 121, 111, 0.12);
+}
+
+.funding-chip.risk.danger {
+  border-color: rgba(139, 58, 54, 0.5);
+  color: var(--trade-bearish);
+  background: rgba(139, 58, 54, 0.16);
+}
+
 .funding-chip.status.active {
   border-color: rgba(82, 121, 111, 0.4);
   color: var(--trade-bullish);

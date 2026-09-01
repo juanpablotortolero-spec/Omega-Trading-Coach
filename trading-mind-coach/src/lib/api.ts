@@ -776,8 +776,9 @@ export async function replaceOperations(
 
 /**
  * Suma el P&L del día por cuenta vinculada y actualiza el balance real de
- * cada una — reusa updateFundingAccountBalance (mismo mecanismo que la
- * edición manual en Conexiones) y deja un registro en
+ * cada una mediante el RPC atómico apply_funding_account_pnl (un solo
+ * `update ... set current_balance = current_balance + delta` en Postgres,
+ * sin lectura-y-escritura desde el cliente) y deja un registro en
  * funding_account_balance_events para que el Gestor de Riesgo pueda mostrar
  * tendencia. Si la misma operación está vinculada a varias cuentas, se le
  * aplica el mismo P&L registrado a cada una.
@@ -797,20 +798,16 @@ export async function applyOperationsPnlToAccounts(
   }
   if (pnlByAccount.size === 0) return;
 
-  const accountIds = Array.from(pnlByAccount.keys());
-  const { data: accounts, error } = await supabase
-    .from('funding_accounts')
-    .select('id, current_balance')
-    .in('id', accountIds);
-  if (error) throw error;
-
-  for (const account of accounts ?? []) {
-    const delta = pnlByAccount.get(account.id) ?? 0;
+  for (const [accountId, delta] of pnlByAccount) {
     if (delta === 0) continue;
-    const balanceAfter = account.current_balance + delta;
-    await updateFundingAccountBalance(account.id, balanceAfter);
+    const { data: balanceAfter, error } = await supabase.rpc('apply_funding_account_pnl', {
+      p_account_id: accountId,
+      p_delta: delta,
+    });
+    if (error) throw error;
+
     const { error: eventError } = await supabase.from('funding_account_balance_events').insert({
-      funding_account_id: account.id,
+      funding_account_id: accountId,
       user_id: userId,
       delta,
       balance_after: balanceAfter,
