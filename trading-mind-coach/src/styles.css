@@ -1460,9 +1460,8 @@ textarea {
 }
 
 .agora-ambient .friend-emblem:not(.bronze) {
-  border-color: rgba(226, 156, 74, 0.4);
-  background: rgba(226, 156, 74, 0.1);
   color: #E2A75E;
+  --badge-glow-color: rgba(226, 156, 74, 0.6);
 }
 
 .agora-shell {
@@ -1645,14 +1644,6 @@ textarea {
 .friend-emblem.chat {
   width: 24px;
   height: 24px;
-  border-width: 1.5px;
-  background: rgba(201, 166, 107, 0.18);
-  border-color: rgba(201, 166, 107, 0.55);
-}
-
-.friend-emblem.chat.bronze {
-  background: rgba(138, 107, 78, 0.2);
-  border-color: rgba(138, 107, 78, 0.6);
 }
 
 .friend-emblem.chat .friend-emblem-icon {
@@ -3537,19 +3528,19 @@ textarea {
 .friend-emblem {
   width: 30px;
   height: 30px;
-  border-radius: 50%;
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  border: 1px solid rgba(201, 166, 107, 0.35);
-  background: rgba(201, 166, 107, 0.08);
   color: var(--accent-gold);
+  --badge-glow-color: rgba(201, 166, 107, 0.6);
+  --badge-glow-lo: 3px;
+  --badge-glow-hi: 8px;
+  animation: mission-badge-pulse 3.6s ease-in-out infinite;
 }
 
 .friend-emblem.bronze {
-  border-color: rgba(138, 107, 78, 0.45);
-  background: rgba(138, 107, 78, 0.1);
   color: var(--accent-bronze);
+  --badge-glow-color: rgba(138, 107, 78, 0.65);
 }
 
 .friend-emblem-icon {
