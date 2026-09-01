@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import BuzonInfoModal from '../components/BuzonInfoModal';
 import { useAuth } from '../contexts/AuthContext';
 import {
   getPendingAgoraRequests,
@@ -20,6 +21,7 @@ function Buzon() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [infoOpen, setInfoOpen] = useState(false);
 
   const [pending, setPending] = useState<PendingFriendRequest[]>([]);
   const [agoraRequests, setAgoraRequests] = useState<PendingAgoraRequest[]>([]);
@@ -85,6 +87,14 @@ function Buzon() {
   return (
     <>
       <header className="topbar panel">
+        <button
+          type="button"
+          className="info-btn"
+          onClick={() => setInfoOpen(true)}
+          aria-label="Cómo funciona el Buzón"
+        >
+          ℹ
+        </button>
         <div>
           <p className="eyebrow">Correspondencia</p>
           <h2>Buzón</h2>
@@ -253,6 +263,8 @@ function Buzon() {
           </div>
         )}
       </section>
+
+      <BuzonInfoModal open={infoOpen} onClose={() => setInfoOpen(false)} />
     </>
   );
 }

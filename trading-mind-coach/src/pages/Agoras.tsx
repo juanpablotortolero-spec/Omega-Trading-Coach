@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
+import AgorasInfoModal from '../components/AgorasInfoModal';
 import { useAuth } from '../contexts/AuthContext';
 import {
   createAgora,
@@ -19,6 +20,7 @@ function Agoras() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [agoras, setAgoras] = useState<Agora[]>([]);
+  const [infoOpen, setInfoOpen] = useState(false);
 
   const [newName, setNewName] = useState('');
   const [creating, setCreating] = useState(false);
@@ -117,6 +119,14 @@ function Agoras() {
   return (
     <>
       <header className="topbar panel">
+        <button
+          type="button"
+          className="info-btn"
+          onClick={() => setInfoOpen(true)}
+          aria-label="Cómo funcionan las Ágoras"
+        >
+          ℹ
+        </button>
         <div>
           <p className="eyebrow">Grupos Privados</p>
           <h2>Ágoras</h2>
@@ -229,6 +239,8 @@ function Agoras() {
           </div>
         )}
       </section>
+
+      <AgorasInfoModal open={infoOpen} onClose={() => setInfoOpen(false)} />
     </>
   );
 }

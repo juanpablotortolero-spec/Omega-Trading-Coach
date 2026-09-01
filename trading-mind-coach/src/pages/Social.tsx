@@ -11,6 +11,7 @@ import {
 } from '../lib/api';
 import { isOnline, lastSeenLabel } from '../lib/presence';
 import { stageBadges } from '../lib/virtus';
+import SocialInfoModal from '../components/SocialInfoModal';
 import UserEmblem from '../components/UserEmblem';
 import VirtusIcon, { type VirtusLevel } from '../components/VirtusIcon';
 
@@ -24,6 +25,7 @@ function Social() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [infoOpen, setInfoOpen] = useState(false);
 
   const [friends, setFriends] = useState<Friend[]>([]);
   const [friendStages, setFriendStages] = useState<Record<string, string | null>>({});
@@ -109,6 +111,14 @@ function Social() {
   return (
     <>
       <header className="topbar panel">
+        <button
+          type="button"
+          className="info-btn"
+          onClick={() => setInfoOpen(true)}
+          aria-label="Cómo funciona Fraternidad"
+        >
+          ℹ
+        </button>
         <div>
           <p className="eyebrow">La Hermandad</p>
           <h2>Fraternidad</h2>
@@ -187,6 +197,8 @@ function Social() {
           </div>
         )}
       </section>
+
+      <SocialInfoModal open={infoOpen} onClose={() => setInfoOpen(false)} />
     </>
   );
 }

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import HistorialInfoModal from '../components/HistorialInfoModal';
 import MonthCalendar from '../components/MonthCalendar';
 import MiniMonth from '../components/MiniMonth';
 import { useAuth } from '../contexts/AuthContext';
@@ -22,6 +23,7 @@ function Historial() {
   const [summaryByDate, setSummaryByDate] = useState<Record<string, DaySummary>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [infoOpen, setInfoOpen] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -73,6 +75,14 @@ function Historial() {
   return (
     <>
       <header className="topbar panel">
+        <button
+          type="button"
+          className="info-btn"
+          onClick={() => setInfoOpen(true)}
+          aria-label="Cómo funciona el Historial"
+        >
+          ℹ
+        </button>
         <div>
           <p className="eyebrow">Bitácora Mensual</p>
           <h2>Historial</h2>
@@ -159,6 +169,8 @@ function Historial() {
           {loading && <div className="skeleton skeleton-table" style={{ marginTop: 12 }} />}
         </section>
       )}
+
+      <HistorialInfoModal open={infoOpen} onClose={() => setInfoOpen(false)} />
     </>
   );
 }
