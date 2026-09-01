@@ -13,6 +13,7 @@ import {
 import { localIsoDate } from '../lib/calendar';
 import { currentStage } from '../lib/virtus';
 import UserEmblem from '../components/UserEmblem';
+import VirtusRankMapModal from '../components/VirtusRankMapModal';
 
 function todayIso() {
   return localIsoDate(new Date());
@@ -32,6 +33,7 @@ function Perfil() {
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState('');
   const [savingName, setSavingName] = useState(false);
+  const [rankMapOpen, setRankMapOpen] = useState(false);
 
   const loadAll = async () => {
     if (!user) return;
@@ -149,15 +151,23 @@ function Perfil() {
 
         <article className="panel plan-section">
           <h3>Tu Progreso</h3>
-          <div className={`badge-mark ${stage.accent}`} style={{ margin: '0 auto' }}>
+          <button
+            type="button"
+            className={`badge-mark ${stage.accent}`}
+            style={{ margin: '0 auto' }}
+            onClick={() => setRankMapOpen(true)}
+            aria-label="Ver el Mapa de Rangos Virtus"
+          >
             <VirtusIcon level={stage.level as VirtusLevel} className="badge-mark-icon" />
-          </div>
+          </button>
           <p className="hint-text" style={{ textAlign: 'center' }}>
             {stage.level} · {stage.name}
           </p>
           <VirtusProgressBar virtusTotal={virtusTotal} todayDelta={todayDelta} peakTotal={peakTotal} />
         </article>
       </section>
+
+      <VirtusRankMapModal open={rankMapOpen} onClose={() => setRankMapOpen(false)} virtusTotal={virtusTotal} />
     </>
   );
 }

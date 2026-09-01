@@ -50,6 +50,7 @@ import { isOnline } from '../lib/presence';
 import { currentStage } from '../lib/virtus';
 import AtaraxiaBar from './AtaraxiaBar';
 import ProgressInfoModal from './ProgressInfoModal';
+import VirtusRankMapModal from './VirtusRankMapModal';
 import UserEmblem from './UserEmblem';
 
 const statsRangeOptions: { value: StatsRange; label: string }[] = [
@@ -121,6 +122,7 @@ function Dashboard() {
   const [areteTotal, setAreteTotal] = useState<number | null>(null);
   const [areteDelta, setAreteDelta] = useState<number | null>(null);
   const [infoOpen, setInfoOpen] = useState(false);
+  const [rankMapOpen, setRankMapOpen] = useState(false);
   const [hasUnsealedReminder, setHasUnsealedReminder] = useState(false);
   const [aiMissions, setAiMissions] = useState<AiMission[]>([]);
   const [goalReasons, setGoalReasons] = useState<Map<string, { reason: string; delta: number; createdAt: string }>>(
@@ -569,9 +571,14 @@ function Dashboard() {
             </div>
             <strong>{displayName}</strong>
           </Link>
-          <div className={`badge-mark ${stage.accent}`}>
+          <button
+            type="button"
+            className={`badge-mark ${stage.accent}`}
+            onClick={() => setRankMapOpen(true)}
+            aria-label="Ver el Mapa de Rangos Virtus"
+          >
             <VirtusIcon level={stage.level as VirtusLevel} className="badge-mark-icon" />
-          </div>
+          </button>
           <p className="hint-text">{stage.level}</p>
           <VirtusProgressBar virtusTotal={virtusTotal} todayDelta={todayDelta} peakTotal={peakTotal} />
 
@@ -590,6 +597,7 @@ function Dashboard() {
           virtusTotal={virtusTotal}
           areteScore={areteTotal}
         />
+        <VirtusRankMapModal open={rankMapOpen} onClose={() => setRankMapOpen(false)} virtusTotal={virtusTotal} />
 
         <Link to="/buzon" className="panel mailbox-card">
           <span className="mailbox-icon-wrap">

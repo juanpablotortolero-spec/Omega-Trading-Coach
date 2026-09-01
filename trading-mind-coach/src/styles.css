@@ -1004,7 +1004,9 @@ tbody tr:hover {
 
 /* Sin aro ni fondo circular — el emblema respira suelto sobre la tarjeta, el
    glow (en .badge-mark-icon) es lo único que lo enmarca, igual que las
-   medallas del Museo. */
+   medallas del Museo. Ahora es un botón: flota suavemente en reposo y se
+   eleva más al pasar el mouse o enfocarlo, invitando a tocarlo para abrir
+   el Mapa de Rangos. */
 .badge-mark {
   display: grid;
   place-items: center;
@@ -1012,6 +1014,28 @@ tbody tr:hover {
   height: 180px;
   margin: 4px auto 0;
   color: var(--accent-gold);
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  animation: badge-mark-float 5s ease-in-out infinite;
+  transition: transform 0.35s ease;
+}
+
+.badge-mark:hover,
+.badge-mark:focus-visible {
+  transform: translateY(-10px) scale(1.05);
+  animation-play-state: paused;
+}
+
+.badge-mark:focus-visible {
+  outline: 2px solid var(--accent-gold);
+  outline-offset: 6px;
+}
+
+@keyframes badge-mark-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-7px); }
 }
 
 .badge-mark.bronze {
@@ -1029,6 +1053,109 @@ tbody tr:hover {
 
 .badge-mark.bronze .badge-mark-icon {
   --badge-glow-color: rgba(138, 107, 78, 0.6);
+}
+
+/* Mapa de Rangos Virtus — grid de las 5 insignias dentro del modal que abre
+   .badge-mark. Desbloqueadas: mismo tratamiento que .badge-mark-icon (real,
+   con glow). Bloqueadas: silueta oscurecida + candado, sin nombre, para dar
+   sensación de misterio/prestigio por descubrir. */
+.virtus-map-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 18px;
+}
+
+.virtus-map-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 12px;
+  border-radius: 16px;
+  border: 1px solid var(--border-subtle);
+  background: rgba(255, 255, 255, 0.02);
+  text-align: center;
+}
+
+.virtus-map-card.current {
+  border-color: rgba(201, 166, 107, 0.55);
+  background: rgba(201, 166, 107, 0.07);
+  box-shadow: 0 0 0 1px rgba(201, 166, 107, 0.18), 0 16px 30px rgba(0, 0, 0, 0.3);
+}
+
+.virtus-map-icon-wrap {
+  position: relative;
+  width: 84px;
+  height: 84px;
+  display: grid;
+  place-items: center;
+}
+
+.virtus-map-icon {
+  width: 76px;
+  height: 76px;
+  color: var(--accent-gold);
+  --badge-glow-color: rgba(201, 166, 107, 0.6);
+  --badge-glow-lo: 6px;
+  --badge-glow-hi: 16px;
+  animation: mission-badge-pulse 4s ease-in-out infinite;
+}
+
+.virtus-map-card.bronze .virtus-map-icon {
+  color: var(--accent-bronze);
+  --badge-glow-color: rgba(138, 107, 78, 0.6);
+}
+
+.virtus-map-card.locked .virtus-map-icon {
+  color: var(--text-muted);
+  filter: grayscale(1) brightness(0.35) blur(1.5px);
+  animation: none;
+}
+
+.virtus-map-lock {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 1.4rem;
+  opacity: 0.85;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.7));
+}
+
+.virtus-map-name {
+  font-family: 'Cinzel', serif;
+  font-weight: 700;
+  font-size: 0.92rem;
+  letter-spacing: 0.06em;
+  color: var(--text-primary);
+}
+
+.virtus-map-card.locked .virtus-map-name {
+  color: var(--text-muted);
+  letter-spacing: 0.16em;
+}
+
+.virtus-map-range {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.virtus-map-current-tag {
+  font-family: 'Cinzel', serif;
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent-gold);
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(201, 166, 107, 0.4);
+  background: rgba(201, 166, 107, 0.1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .virtus-map-icon {
+    animation: none;
+  }
 }
 
 /* Solo aplica cuando VirtusIcon renderiza el <img> real (no el line-art de
@@ -5156,6 +5283,7 @@ textarea {
 @media (prefers-reduced-motion: reduce) {
   .gauge-fill,
   .brand-crest-mark,
+  .badge-mark,
   .badge-mark-icon,
   .mailbox-badge,
   .ataraxia-knob {
