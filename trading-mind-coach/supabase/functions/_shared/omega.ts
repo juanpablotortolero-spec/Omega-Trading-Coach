@@ -162,7 +162,7 @@ Sé conciso en cada campo de texto (1-2 frases, nunca un párrafo largo) y limit
 
 Contexto real del trader (no lo inventes, úsalo tal cual): Rango Virtus ${context.virtusStage}, Virtus total ${context.virtusTotal}, Ataraxia ${context.ataraxiaPct !== null ? `${context.ataraxiaPct}%` : 'sin datos suficientes todavía hoy'}.
 ${formatFundingAccountsBlock(context)}${formatAutomaticGoalsBlock(context)}
-Si el CANDADO DE RIESGO está activado arriba: "daily_feedback" tiene que reflejar la advertencia severa explícitamente (no la omitas ni la suavices), y uno de los "daily_missions" tiene que ser, concretamente, una misión de reducción de riesgo (ej. bajar el lotaje o el riesgo por operación) — no una misión genérica.
+${context.screenshotUrls && context.screenshotUrls.length > 0 ? `Este mensaje incluye ${context.screenshotUrls.length} captura(s) real(es) del gráfico operado hoy, como imágenes adjuntas — analízalas técnicamente (estructura de precio, ubicación de la liquidez, order blocks, FVGs, zonas operativas) y usa esa lectura concreta como evidencia en "strengths"/"weaknesses" (behavior/hypothesis/fix) o en "daily_feedback": no las ignores ni te limites al texto del digest.\n` : ''}Si el CANDADO DE RIESGO está activado arriba: "daily_feedback" tiene que reflejar la advertencia severa explícitamente (no la omitas ni la suavices), y uno de los "daily_missions" tiene que ser, concretamente, una misión de reducción de riesgo (ej. bajar el lotaje o el riesgo por operación) — no una misión genérica.
 Si arriba hay metas automáticas, "daily_feedback" debe mencionar en una frase cómo el desempeño de hoy la acerca o la aleja — no la ignores solo porque este JSON no tiene un campo dedicado a eso.`;
 }
 
@@ -242,7 +242,7 @@ Contexto actual del trader (real, de su cuenta):
 - Puntos Virtus totales: ${context.virtusTotal}
 - Ataraxia (ejecución mecánica y paz mental) hoy: ${context.ataraxiaPct !== null ? `${context.ataraxiaPct}%` : 'sin datos suficientes todavía hoy'}
 ${formatAutomaticGoalsBlock(context)}${formatActiveMissionsBlock(context)}${formatMissionReflectionsBlock(context)}${formatPreviousVerdictBlock(context)}${formatFundingAccountsBlock(context)}${context.sessionDigest ? `\n${context.sessionDigest}\n` : ''}
-${context.screenshotUrls && context.screenshotUrls.length > 0 ? `\nEste mensaje incluye ${context.screenshotUrls.length} captura(s) real(es) del journal, como imágenes adjuntas. Analízalas técnicamente (estructura SMC/ICT visible: barridos de liquidez, order blocks, FVGs, justificación real de la entrada) y cita explícitamente lo que ves en cada una — no las ignores ni te limites al texto del digest.\n` : ''}
+${context.screenshotUrls && context.screenshotUrls.length > 0 ? `\nEste mensaje incluye ${context.screenshotUrls.length} captura(s) real(es) del journal, como imágenes adjuntas. Analízalas técnicamente (estructura de precio, ubicación real de la liquidez — barridos, equal highs/lows, rangos previos —, order blocks, FVGs y las zonas operativas que reflejan) y cita explícitamente lo que ves en cada una — no las ignores ni te limites al texto del digest. Estructura tu respuesta en dos ideas claramente separadas (cada una en su propio párrafo, respetando el Formato de arriba): primero la lectura técnica de lo que muestra la imagen, después el veredicto psicológico/disciplinario que se desprende de esa lectura — nunca mezclado en una sola idea.\n` : ''}
 ${REQUEST_TYPE_INSTRUCTIONS[requestType]}`;
 }
 
