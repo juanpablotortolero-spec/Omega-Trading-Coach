@@ -5,6 +5,7 @@ import MonthCalendar from './MonthCalendar';
 import VirtusIcon, { type VirtusLevel } from './VirtusIcon';
 import VirtusProgressBar from './VirtusProgressBar';
 import { useAuth } from '../contexts/AuthContext';
+import { useMailbox } from '../contexts/MailboxContext';
 import { useOmega } from '../contexts/OmegaContext';
 import { useRefresh } from '../contexts/RefreshContext';
 import {
@@ -19,10 +20,6 @@ import {
   getMyAgoras,
   getMyProfile,
   getOperationsInRange,
-  getPendingAgoraRequestsCount,
-  getPendingFriendRequestsCount,
-  getRecentEntrySealStatus,
-  getRecentSharesForMe,
   getStatsPreview,
   getStreak,
   getTodaySessionVirtusDelta,
@@ -38,7 +35,6 @@ import {
   type AiMission,
   type Friend,
   type GoalItem,
-  type SharedEntry,
   type StatsPreview,
   type StatsRange,
   type TodayStatus,
@@ -111,9 +107,6 @@ function Dashboard() {
   const [completedWeeklyKeys, setCompletedWeeklyKeys] = useState<Set<string>>(new Set());
   const [virtusTotal, setVirtusTotal] = useState(0);
   const [friends, setFriends] = useState<Friend[]>([]);
-  const [pendingCount, setPendingCount] = useState(0);
-  const [pendingAgoraCount, setPendingAgoraCount] = useState(0);
-  const [shares, setShares] = useState<SharedEntry[]>([]);
   const [goals, setGoals] = useState<GoalItem[]>([]);
   const [profileDisplayName, setProfileDisplayName] = useState<string | null>(null);
   const [agoras, setAgoras] = useState<Agora[]>([]);
@@ -123,12 +116,12 @@ function Dashboard() {
   const [areteDelta, setAreteDelta] = useState<number | null>(null);
   const [infoOpen, setInfoOpen] = useState(false);
   const [rankMapOpen, setRankMapOpen] = useState(false);
-  const [hasUnsealedReminder, setHasUnsealedReminder] = useState(false);
   const [aiMissions, setAiMissions] = useState<AiMission[]>([]);
   const [goalReasons, setGoalReasons] = useState<Map<string, { reason: string; delta: number; createdAt: string }>>(
     new Map(),
   );
   const { lastEffects: omegaLastEffects } = useOmega();
+  const { mailboxCount } = useMailbox();
 
   const today = new Date();
   const todayIso = localIsoDate(today);
@@ -156,30 +149,22 @@ function Dashboard() {
           ops,
           weekly,
           friendList,
-          pending,
-          pendingAgora,
-          sharesList,
           profile,
           agoraList,
           delta,
           disciplineInputs,
           allOps,
-          sealStatus,
         ] = await Promise.all([
           getStreak(user!.id, todayIso, plan?.trades_crypto ?? false),
           getTodayStatus(user!.id, todayIso),
           getOperationsInRange(user!.id, monthStart, monthEnd),
           getWeeklyMissionsStatus(user!.id, weekStart, weekEnd),
           getFriends(user!.id),
-          getPendingFriendRequestsCount(user!.id),
-          getPendingAgoraRequestsCount(user!.id),
-          getRecentSharesForMe(user!.id),
           getMyProfile(user!.id),
           getMyAgoras(user!.id),
           getTodaySessionVirtusDelta(user!.id, todayIso),
           getDisciplineInputsByDate(user!.id),
           getAllOperations(user!.id),
-          getRecentEntrySealStatus(user!.id, todayIso),
         ]);
 
         if (cancelled) return;
@@ -202,10 +187,6 @@ function Dashboard() {
         setCompletedWeeklyKeys(completedKeys);
         setVirtusTotal(total);
         setFriends(friendList);
-        setPendingCount(pending);
-        setPendingAgoraCount(pendingAgora);
-        setShares(sharesList);
-        setHasUnsealedReminder(Boolean(sealStatus && !sealStatus.sealed));
         setGoals(plan?.goals ?? []);
         setProfileDisplayName(profile.displayName);
         setAgoras(agoraList);
@@ -304,7 +285,6 @@ function Dashboard() {
   const dateLabel = today.toLocaleDateString('es-ES', { weekday: 'long', day: '2-digit', month: 'long' });
   const monthLabel = today.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
   const todayKey = dateKey(today.getFullYear(), today.getMonth(), today.getDate());
-  const mailboxCount = pendingCount + pendingAgoraCount + shares.length + (hasUnsealedReminder ? 1 : 0);
 
   return (
       <div className="inicio-grid">

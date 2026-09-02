@@ -1,17 +1,10 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useMailbox } from '../contexts/MailboxContext';
 import { OmegaProvider } from '../contexts/OmegaContext';
 import { useRefresh } from '../contexts/RefreshContext';
-import {
-  getPendingAgoraRequestsCount,
-  getPendingFriendRequestsCount,
-  getRecentEntrySealStatus,
-  getRecentSharesForMe,
-  getTodayBriefingAckStatus,
-  getWeeklyKillSwitchStatus,
-  touchPresence,
-} from '../lib/api';
+import { getTodayBriefingAckStatus, getWeeklyKillSwitchStatus, touchPresence } from '../lib/api';
 import { localIsoDate } from '../lib/calendar';
 import { getNotificationPermission, requestNotificationPermission, type NotificationPermissionState } from '../lib/desktopNotifications';
 import { useDesktopNotifications } from '../hooks/useDesktopNotifications';
@@ -66,9 +59,8 @@ const emberParticles = Array.from({ length: 42 }, () => {
 function MainLayout() {
   const { user, signOut } = useAuth();
   const { version } = useRefresh();
+  const { pendingRequests, mailboxCount } = useMailbox();
   const location = useLocation();
-  const [pendingRequests, setPendingRequests] = useState(0);
-  const [mailboxCount, setMailboxCount] = useState(0);
   const [navOpen, setNavOpen] = useState(false);
   const [journalLocked, setJournalLocked] = useState(false);
   const [hasUnreadBriefing, setHasUnreadBriefing] = useState(false);
@@ -111,40 +103,6 @@ function MainLayout() {
   useEffect(() => {
     setNavOpen(false);
   }, [location.pathname]);
-
-  useEffect(() => {
-    if (!user) return;
-
-    let cancelled = false;
-    getPendingFriendRequestsCount(user.id).then((pending) => {
-      if (cancelled) return;
-      setPendingRequests(pending);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [user, version]);
-
-  useEffect(() => {
-    if (!user) return;
-
-    let cancelled = false;
-    Promise.all([
-      getPendingFriendRequestsCount(user.id),
-      getPendingAgoraRequestsCount(user.id),
-      getRecentSharesForMe(user.id),
-      getRecentEntrySealStatus(user.id, localIsoDate(new Date())),
-    ]).then(([pending, pendingAgora, shares, sealStatus]) => {
-      if (cancelled) return;
-      const unsealedReminder = sealStatus && !sealStatus.sealed ? 1 : 0;
-      setMailboxCount(pending + pendingAgora + shares.length + unsealedReminder);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [user, version]);
 
   useEffect(() => {
     if (!user) return;

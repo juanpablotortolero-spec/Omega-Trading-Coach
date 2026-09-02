@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
+import { MailboxProvider } from './contexts/MailboxContext';
 import { getTradingPlan } from './lib/api';
 import Login from './components/Login';
 import MainLayout from './components/MainLayout';
@@ -86,7 +87,13 @@ function App() {
   return (
     <Suspense fallback={<RouteFallback />}>
       <Routes>
-        <Route element={<MainLayout />}>
+        <Route
+          element={
+            <MailboxProvider>
+              <MainLayout />
+            </MailboxProvider>
+          }
+        >
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/omega-coach" element={<OmegaDashboard />} />
           <Route path="/manual-operativo" element={<TradingPlan />} />
