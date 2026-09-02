@@ -120,14 +120,28 @@ export type MonthlyCloseResult = {
   };
 };
 
-/** Hasta 4 URLs de capturas reales de las operaciones del día — para que Omega vea la sesión, no solo la lea. */
-function collectScreenshotUrls(operations: OperationItem[]): string[] {
+/**
+ * Hasta 4 URLs de capturas reales — primero las generales del journal
+ * (sección "Capturas de pantalla", `entry.screenshots`), después las de cada
+ * operación (`op.screenshots`) — para que Omega vea la sesión, no solo la
+ * lea. Antes solo miraba `op.screenshots`: si el trader pegaba su captura en
+ * la sección general y nunca la adjuntaba a una operación puntual, Omega
+ * recibía cero imágenes sin ningún aviso. Descarta cualquier entrada sin
+ * `url` (subida que falló a mitad de camino) para no mandarle a la API un
+ * bloque de imagen roto.
+ */
+function collectScreenshotUrls(entry: JournalEntryFull | null, operations: OperationItem[]): string[] {
   const urls: string[] = [];
-  for (const op of operations) {
-    for (const shot of op.screenshots) {
-      if (urls.length >= 4) return urls;
-      urls.push(shot.url);
+  const pushShots = (shots: { url: string }[]) => {
+    for (const shot of shots) {
+      if (urls.length >= 4) return;
+      if (shot.url) urls.push(shot.url);
     }
+  };
+  if (entry) pushShots(entry.screenshots);
+  for (const op of operations) {
+    if (urls.length >= 4) break;
+    pushShots(op.screenshots);
   }
   return urls;
 }
@@ -436,7 +450,7 @@ export function useOmegaAgent() {
           sessionDate: targetDate,
           fundingAccounts,
           previousVerdict: latestVerdict ? { wentWell: latestVerdict.went_well, wentWrong: latestVerdict.went_wrong } : undefined,
-          screenshotUrls: collectScreenshotUrls(operations),
+          screenshotUrls: collectScreenshotUrls(entry, operations),
         });
       } catch (err) {
         setError(err instanceof Error ? err.message : 'No se pudo evaluar la sesión.');
@@ -534,7 +548,7 @@ export function useOmegaAgent() {
             requestType: 'auditoria_head_coach',
             fundingAccounts,
             automaticGoals,
-            screenshotUrls: collectScreenshotUrls(operations),
+            screenshotUrls: collectScreenshotUrls(entry, operations),
           },
         },
       });

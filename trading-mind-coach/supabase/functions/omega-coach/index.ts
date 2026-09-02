@@ -110,15 +110,31 @@ Deno.serve(async (req) => {
     // usuario (el digest de sesión recién armado) pasa de string plano a un
     // array de bloques texto+imagen — la API de Anthropic acepta
     // source:{type:'url', url} directo, sin que el Edge Function tenga que
-    // descargar/codificar nada.
+    // descargar/codificar nada. Se descarta cualquier URL vacía o mal
+    // formateada ANTES de armar el bloque (nunca en silencio: queda logueado)
+    // para no mandarle a la API un bloque de imagen roto que tire abajo todo
+    // el mensaje.
     if (context.screenshotUrls && context.screenshotUrls.length > 0) {
+      const validScreenshotUrls = context.screenshotUrls.filter(
+        (url): url is string => typeof url === 'string' && /^https?:\/\//i.test(url.trim()),
+      );
+      if (validScreenshotUrls.length !== context.screenshotUrls.length) {
+        console.warn(
+          `omega-coach: descartada(s) ${context.screenshotUrls.length - validScreenshotUrls.length} URL(s) de captura inválida(s) o vacía(s) — usuario ${user.id}.`,
+        );
+      }
       const lastIndex = conversation.length - 1;
-      if (lastIndex >= 0 && conversation[lastIndex].role === 'user' && typeof conversation[lastIndex].content === 'string') {
+      if (
+        validScreenshotUrls.length > 0 &&
+        lastIndex >= 0 &&
+        conversation[lastIndex].role === 'user' &&
+        typeof conversation[lastIndex].content === 'string'
+      ) {
         conversation[lastIndex] = {
           role: 'user',
           content: [
             { type: 'text', text: conversation[lastIndex].content },
-            ...context.screenshotUrls.map((url) => ({ type: 'image', source: { type: 'url', url } })),
+            ...validScreenshotUrls.map((url) => ({ type: 'image', source: { type: 'url', url } })),
           ],
         };
       }
