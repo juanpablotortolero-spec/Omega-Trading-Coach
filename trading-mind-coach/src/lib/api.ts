@@ -776,12 +776,12 @@ export async function replaceOperations(
 
 /**
  * Suma el P&L del día por cuenta vinculada y actualiza el balance real de
- * cada una mediante el RPC atómico apply_funding_account_pnl (un solo
- * `update ... set current_balance = current_balance + delta` en Postgres,
- * sin lectura-y-escritura desde el cliente) y deja un registro en
- * funding_account_balance_events para que el Gestor de Riesgo pueda mostrar
- * tendencia. Si la misma operación está vinculada a varias cuentas, se le
- * aplica el mismo P&L registrado a cada una.
+ * cada una mediante el RPC atómico apply_funding_account_pnl — una sola
+ * función PL/pgSQL que hace el `update` del balance Y el `insert` del
+ * evento de historial en la misma transacción implícita de Postgres (si el
+ * insert fallara, el update también se revierte). Si la misma operación
+ * está vinculada a varias cuentas, se le aplica el mismo P&L registrado a
+ * cada una.
  */
 export async function applyOperationsPnlToAccounts(
   userId: string,
@@ -800,21 +800,14 @@ export async function applyOperationsPnlToAccounts(
 
   for (const [accountId, delta] of pnlByAccount) {
     if (delta === 0) continue;
-    const { data: balanceAfter, error } = await supabase.rpc('apply_funding_account_pnl', {
+    const { error } = await supabase.rpc('apply_funding_account_pnl', {
       p_account_id: accountId,
       p_delta: delta,
+      p_user_id: userId,
+      p_reason: 'journal_pnl_sync',
+      p_journal_entry_id: journalEntryId,
     });
     if (error) throw error;
-
-    const { error: eventError } = await supabase.from('funding_account_balance_events').insert({
-      funding_account_id: accountId,
-      user_id: userId,
-      delta,
-      balance_after: balanceAfter,
-      reason: 'journal_pnl_sync',
-      journal_entry_id: journalEntryId,
-    });
-    if (eventError) throw eventError;
   }
 }
 
