@@ -2,12 +2,14 @@ import { useEffect, useState, type CSSProperties } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useMailbox } from '../contexts/MailboxContext';
+import { MedalProvider } from '../contexts/MedalContext';
 import { OmegaProvider } from '../contexts/OmegaContext';
 import { useRefresh } from '../contexts/RefreshContext';
 import { getTodayBriefingAckStatus, getWeeklyKillSwitchStatus, touchPresence } from '../lib/api';
 import { localIsoDate } from '../lib/calendar';
 import { getNotificationPermission, requestNotificationPermission, type NotificationPermissionState } from '../lib/desktopNotifications';
 import { useDesktopNotifications } from '../hooks/useDesktopNotifications';
+import MedalUnlockToast from './MedalUnlockToast';
 import OmegaAlertModal from './OmegaAlertModal';
 import OmegaChat from './OmegaChat';
 import OmegaMark from './OmegaMark';
@@ -143,6 +145,7 @@ function MainLayout() {
 
   return (
     <OmegaProvider>
+    <MedalProvider>
       <div className="ember-field" aria-hidden="true">
         {emberParticles.map((particle, index) => (
           <span
@@ -271,7 +274,9 @@ function MainLayout() {
 
       <OmegaChat />
       <OmegaAlertModal />
+      <MedalUnlockToast />
       {showOnboarding && <OnboardingCarousel onClose={handleCloseOnboarding} />}
+    </MedalProvider>
     </OmegaProvider>
   );
 }

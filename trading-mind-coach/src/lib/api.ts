@@ -1,4 +1,5 @@
 import { localIsoDate, summarizeOperationsByDate } from './calendar';
+import { getMedalProgress, MEDAL_TIER_XP, type MedalTierName } from './medals';
 import { computeDangerPct } from './risk';
 import { supabase } from './supabaseClient';
 import { currentStage, rankPenaltyMultiplier } from './virtus';
@@ -8,23 +9,27 @@ export async function getVirtusTotal(userId: string): Promise<number> {
     { data: events, error: eventsError },
     { data: weekly, error: weeklyError },
     { data: aiEvents, error: aiEventsError },
+    { data: medals, error: medalsError },
   ] = await Promise.all([
     supabase.from('virtus_events').select('points').eq('user_id', userId),
     supabase.from('weekly_missions').select('points').eq('user_id', userId),
     supabase.from('virtus_ai_events').select('points').eq('user_id', userId),
+    supabase.from('medal_unlocks').select('points').eq('user_id', userId),
   ]);
 
   if (eventsError) throw eventsError;
   if (weeklyError) throw weeklyError;
-  // virtus_ai_events is a brand-new table (Omega agent) — tolerate it not
-  // existing yet (Postgres "undefined_table", code 42P01) so this function
-  // keeps working for accounts that haven't run that migration yet.
+  // virtus_ai_events y medal_unlocks son tablas nuevas — toleran no existir
+  // todavía (Postgres "undefined_table", code 42P01) así esta función sigue
+  // funcionando para cuentas que no corrieron esa migración todavía.
   if (aiEventsError && aiEventsError.code !== '42P01') throw aiEventsError;
+  if (medalsError && medalsError.code !== '42P01') throw medalsError;
 
   const eventsSum = (events ?? []).reduce((sum, row) => sum + row.points, 0);
   const weeklySum = (weekly ?? []).reduce((sum, row) => sum + row.points, 0);
   const aiEventsSum = (aiEvents ?? []).reduce((sum, row) => sum + row.points, 0);
-  return eventsSum + weeklySum + aiEventsSum;
+  const medalsSum = (medals ?? []).reduce((sum, row) => sum + row.points, 0);
+  return eventsSum + weeklySum + aiEventsSum + medalsSum;
 }
 
 export async function getVirtusDelta(userId: string, sinceDays = 7): Promise<number> {
@@ -2045,6 +2050,121 @@ export async function awardWeeklyMissions(
     .upsert(rows, { onConflict: 'user_id,week_start,mission_key', ignoreDuplicates: true });
 
   if (error) throw error;
+}
+
+export type NewMedalUnlock = {
+  missionKey: string;
+  label: string;
+  tierName: MedalTierName;
+  tierIndex: number;
+  points: number;
+};
+
+/**
+ * Intenta otorgar la medalla — el unique (user_id, mission_key, tier_index) +
+ * ignoreDuplicates la hace idempotente: si ya se había otorgado antes, el
+ * insert no vuelve a aplicarse y `data` vuelve vacío. Devuelve true SOLO
+ * cuando la fila se insertó recién en esta llamada (o sea, cuando de verdad
+ * es una medalla nueva, no una que ya tenía).
+ */
+async function awardMedalUnlockIfNew(
+  userId: string,
+  missionKey: string,
+  tierIndex: number,
+  tierName: MedalTierName,
+  points: number,
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('medal_unlocks')
+    .upsert(
+      { user_id: userId, mission_key: missionKey, tier_index: tierIndex, tier_name: tierName, points },
+      { onConflict: 'user_id,mission_key,tier_index', ignoreDuplicates: true },
+    )
+    .select('id');
+
+  // Tabla nueva — tolera que todavía no exista en vez de romper el resto de la app.
+  if (error) {
+    if (error.code === '42P01') return false;
+    throw error;
+  }
+  return (data ?? []).length > 0;
+}
+
+/**
+ * Recorre TODAS las medallas del Museo (misiones diarias, semanales, de
+ * setup y psicológicas) y le otorga a cada una la medalla más alta ya
+ * alcanzada según su conteo real — gracias a awardMedalUnlockIfNew, llamar
+ * esto de nuevo con medallas ya otorgadas no las vuelve a disparar.
+ * Devuelve solo las que se otorgaron RECIÉN en esta llamada, para poder
+ * mostrar la notificación de desbloqueo.
+ */
+export async function checkForNewMedalUnlocks(userId: string): Promise<NewMedalUnlock[]> {
+  const [dailyCounts, weeklyCounts, psychGrowthCounts, plan] = await Promise.all([
+    getCoreMissionCompletionCounts(userId),
+    getWeeklyMissionCompletionCounts(userId),
+    getPsychGrowthCounts(userId),
+    getTradingPlan(userId),
+  ]);
+
+  const candidates: { key: string; label: string; count: number }[] = [
+    ...coreDailyMissionDefinitions.map((mission) => ({
+      key: mission.key,
+      label: mission.label,
+      count: dailyCounts[mission.key] ?? 0,
+    })),
+    ...weeklyMissionDefinitions.map((mission) => ({
+      key: mission.key,
+      label: mission.label,
+      count: weeklyCounts[mission.key] ?? 0,
+    })),
+    ...(plan?.setups ?? [])
+      .filter((setup) => setup.name.trim())
+      .map((setup) => ({
+        key: `${SETUP_MISSION_KEY_PREFIX}${setup.id}`,
+        label: setup.name,
+        count: dailyCounts[`${SETUP_MISSION_KEY_PREFIX}${setup.id}`] ?? 0,
+      })),
+    {
+      key: OPERATOR_PSYCH_MISSION_KEYS.ANALYSIS_CORRECT,
+      label: 'Análisis cumplidos',
+      count: dailyCounts[OPERATOR_PSYCH_MISSION_KEYS.ANALYSIS_CORRECT] ?? 0,
+    },
+    {
+      key: OPERATOR_PSYCH_MISSION_KEYS.RISK_MANAGEMENT_MISSION,
+      label: 'Manejo de riesgo',
+      count: dailyCounts[OPERATOR_PSYCH_MISSION_KEYS.RISK_MANAGEMENT_MISSION] ?? 0,
+    },
+    {
+      key: OPERATOR_PSYCH_MISSION_KEYS.RESPECT_ANALYSIS,
+      label: 'Respeto a mi análisis',
+      count: dailyCounts[OPERATOR_PSYCH_MISSION_KEYS.RESPECT_ANALYSIS] ?? 0,
+    },
+    {
+      key: OPERATOR_PSYCH_MISSION_KEYS.NO_NEGATIVE_EMOTIONS,
+      label: 'No tuve emociones negativas',
+      count: dailyCounts[OPERATOR_PSYCH_MISSION_KEYS.NO_NEGATIVE_EMOTIONS] ?? 0,
+    },
+    {
+      key: OPERATOR_PSYCH_MISSION_KEYS.DISCIPLINE_85,
+      label: 'Disciplina (Ataraxia 85-100%)',
+      count: dailyCounts[OPERATOR_PSYCH_MISSION_KEYS.DISCIPLINE_85] ?? 0,
+    },
+    { key: 'psych_growth:correccion', label: 'Corrección de errores', count: psychGrowthCounts.correccion },
+    { key: 'psych_growth:fortaleza', label: 'Fortaleza', count: psychGrowthCounts.fortaleza },
+  ];
+
+  const results = await Promise.all(
+    candidates.map(async (candidate): Promise<NewMedalUnlock | null> => {
+      const progress = getMedalProgress(candidate.count);
+      if (progress.tierIndex < 0 || !progress.tierName) return null;
+      const points = MEDAL_TIER_XP[progress.tierName];
+      const wasNew = await awardMedalUnlockIfNew(userId, candidate.key, progress.tierIndex, progress.tierName, points);
+      if (!wasNew) return null;
+      return { missionKey: candidate.key, label: candidate.label, tierName: progress.tierName, tierIndex: progress.tierIndex, points };
+    }),
+  );
+
+  return results.filter((result): result is NewMedalUnlock => result !== null);
 }
 
 export async function getCompletedWeeklyMissionKeys(userId: string, weekStart: string): Promise<Set<string>> {

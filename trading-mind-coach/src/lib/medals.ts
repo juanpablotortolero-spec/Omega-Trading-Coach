@@ -15,6 +15,17 @@ export const MEDAL_TIER_STEPS: { name: MedalTierName; needed: number }[] = [
   { name: 'Esmeralda', needed: 1000 },
 ];
 
+/** XP Virtus que otorga desbloquear cada escalón — mientras más alta la medalla, más XP. */
+export const MEDAL_TIER_XP: Record<MedalTierName, number> = {
+  Bronce: 20,
+  Plata: 50,
+  Oro: 100,
+  Platino: 200,
+  Diamante: 400,
+  Rubí: 800,
+  Esmeralda: 1500,
+};
+
 export type MedalProgress = {
   /** -1 si todavía no se alcanzó ni Bronce. */
   tierIndex: number;
