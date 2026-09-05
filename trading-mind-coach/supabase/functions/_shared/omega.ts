@@ -196,22 +196,16 @@ Cada campo de texto tiene que basarse en los números y hechos reales del digest
 Contexto real del trader (no lo inventes, úsalo tal cual): Rango Virtus ${context.virtusStage}, Virtus total ${context.virtusTotal}.`;
 }
 
-export function buildSystemPrompt(context: OmegaContext): string {
-  const requestType = context.requestType ?? 'chat';
-
-  if (requestType === 'auditoria_head_coach') {
-    return buildHeadCoachSystemPrompt(context);
-  }
-
-  if (requestType === 'recap_semanal') {
-    return buildWeeklyRecapSystemPrompt(context);
-  }
-
-  if (requestType === 'cierre_mensual') {
-    return buildMonthlyCloseSystemPrompt(context);
-  }
-
-  return `Eres Omega, coach y psicólogo de trading institucional. Tu autoridad abarca evaluar la Ataraxia del trader, dictaminar sobre la calidad de su ejecución, detectar patrones de ansiedad, FOMO, impaciencia, venganza y otros sesgos, y guiar activamente su proceso — SMC/ICT como marco técnico de fondo, pero tu terreno real es la disciplina y la psicología.
+/**
+ * 100% estático — ni un solo `${context...}` — así que es idéntico en TODAS
+ * las llamadas de todos los traders. Separado del contexto dinámico
+ * específicamente para poder marcarlo con cache_control en index.ts: sin
+ * esto, cada request (auditoría, chat, briefing) vuelve a pagar/procesar
+ * estos ~1000 tokens de persona+reglas+tools de cero, aunque no cambiaron
+ * una letra desde la última vez que ESTE MISMO trader llamó a Omega hace
+ * un minuto.
+ */
+const OMEGA_STATIC_PERSONA = `Eres Omega, coach y psicólogo de trading institucional. Tu autoridad abarca evaluar la Ataraxia del trader, dictaminar sobre la calidad de su ejecución, detectar patrones de ansiedad, FOMO, impaciencia, venganza y otros sesgos, y guiar activamente su proceso — SMC/ICT como marco técnico de fondo, pero tu terreno real es la disciplina y la psicología.
 
 Concepto ICT central que debes reforzar activamente: el trader NO puede operar como liquidez institucional — perseguir el precio, entrar por FOMO en un movimiento ya en marcha, o entrar sin que el precio haya barrido liquidez (equal highs/lows, un rango previo) es exactamente el comportamiento que el "smart money" usa como combustible. Cuando detectes una entrada que persigue el movimiento en vez de esperar el barrido y la reacción, nómbralo explícitamente como lo que es: "estuviste actuando como liquidez, no como el operador institucional que buscas ser."
 
@@ -237,13 +231,48 @@ Tienes acceso a 8 herramientas. Úsalas con criterio, no en cada respuesta — y
 
 CANDADO DE RIESGO (regla dura, no opcional): si el contexto de abajo trae cuentas de fondeo y alguna tiene un "% de distancia consumida hacia la quema" de ${RISK_LOCK_DANGER_PCT}% o más (es decir, está a menos de ${100 - RISK_LOCK_DANGER_PCT}% de su límite de pérdida MLL), es OBLIGATORIO: (1) usar trigger_ui_alert con severidad 'critical' advirtiendo esto explícitamente, y (2) usar assign_ai_mission para asignar una misión concreta de reducción de riesgo (ej. bajar el lotaje, reducir el riesgo por operación). No lo dejes solo en el texto de tu respuesta — ejecuta ambas tools.
 
-Contexto actual del trader (real, de su cuenta):
+ALERTA TEMPRANA DE RIESGO (más sutil, sin tools obligatorias): si alguna cuenta está entre ${RISK_LOCK_DANGER_PCT - 20}% y ${RISK_LOCK_DANGER_PCT - 1}% de distancia consumida — todavía no activa el candado, pero ya dejó de ser una distancia cómoda — nombralo explícitamente en tu respuesta de texto como gestor de riesgo (ej. "tu cuenta X ya consumió el Y% de su margen de pérdida — todavía no es candado, pero es la última zona antes de que lo sea"). No es obligatorio usar trigger_ui_alert ni assign_ai_mission para esto — es criterio tuyo si la conversación lo amerita — pero JAMÁS te calles un riesgo que ya es visible solo porque no cruzó el umbral duro.`;
+
+function buildOmegaDynamicContext(context: OmegaContext): string {
+  const requestType = context.requestType ?? 'chat';
+
+  return `Contexto actual del trader (real, de su cuenta):
 - Rango Virtus: ${context.virtusStage}
 - Puntos Virtus totales: ${context.virtusTotal}
 - Ataraxia (ejecución mecánica y paz mental) hoy: ${context.ataraxiaPct !== null ? `${context.ataraxiaPct}%` : 'sin datos suficientes todavía hoy'}
 ${formatAutomaticGoalsBlock(context)}${formatActiveMissionsBlock(context)}${formatMissionReflectionsBlock(context)}${formatPreviousVerdictBlock(context)}${formatFundingAccountsBlock(context)}${context.sessionDigest ? `\n${context.sessionDigest}\n` : ''}
 ${context.screenshotUrls && context.screenshotUrls.length > 0 ? `\nEste mensaje incluye ${context.screenshotUrls.length} captura(s) real(es) del journal, como imágenes adjuntas. Analízalas técnicamente (estructura de precio, ubicación real de la liquidez — barridos, equal highs/lows, rangos previos —, order blocks, FVGs y las zonas operativas que reflejan) y cita explícitamente lo que ves en cada una — no las ignores ni te limites al texto del digest. Estructura tu respuesta en dos ideas claramente separadas (cada una en su propio párrafo, respetando el Formato de arriba): primero la lectura técnica de lo que muestra la imagen, después el veredicto psicológico/disciplinario que se desprende de esa lectura — nunca mezclado en una sola idea.\n` : ''}
 ${REQUEST_TYPE_INSTRUCTIONS[requestType]}`;
+}
+
+export type SystemPromptBlock = { type: 'text'; text: string; cache_control?: { type: 'ephemeral' } };
+
+/**
+ * Devuelve el system prompt como bloques (en vez de un string plano) para
+ * poder marcar el bloque estático con cache_control — Anthropic factura ese
+ * bloque a precio de "cache read" (una fracción del costo normal) en
+ * cualquier llamada dentro de la ventana de cache que llegue con el MISMO
+ * prefijo exacto, en vez de tokens de entrada completos cada vez.
+ */
+export function buildSystemPromptBlocks(context: OmegaContext): SystemPromptBlock[] {
+  const requestType = context.requestType ?? 'chat';
+
+  if (requestType === 'auditoria_head_coach') {
+    return [{ type: 'text', text: buildHeadCoachSystemPrompt(context) }];
+  }
+
+  if (requestType === 'recap_semanal') {
+    return [{ type: 'text', text: buildWeeklyRecapSystemPrompt(context) }];
+  }
+
+  if (requestType === 'cierre_mensual') {
+    return [{ type: 'text', text: buildMonthlyCloseSystemPrompt(context) }];
+  }
+
+  return [
+    { type: 'text', text: OMEGA_STATIC_PERSONA, cache_control: { type: 'ephemeral' } },
+    { type: 'text', text: buildOmegaDynamicContext(context) },
+  ];
 }
 
 export const OMEGA_TOOLS = [
@@ -385,5 +414,9 @@ export const OMEGA_TOOLS = [
       },
       required: ['category', 'reason'],
     },
+    // Marca TODO el array de tools (idéntico en cada request) como
+    // cacheable — el cache_control en el ÚLTIMO elemento cubre el prefijo
+    // completo hasta acá, mismo mecanismo que el bloque estático del prompt.
+    cache_control: { type: 'ephemeral' },
   },
 ] as const;

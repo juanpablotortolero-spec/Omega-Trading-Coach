@@ -1489,7 +1489,8 @@ textarea {
 }
 
 .plan-section textarea,
-.repeatable-card textarea {
+.repeatable-card textarea,
+.auth-field textarea {
   overflow: hidden;
   min-height: 90px;
 }
@@ -4241,7 +4242,7 @@ textarea {
   background: rgba(255, 255, 255, 0.02);
 }
 
-.tier-chip input {
+.tier-chip input[type='text'] {
   width: 70px;
   border: none;
   background: transparent;
@@ -5081,7 +5082,8 @@ textarea {
   font-weight: 700;
 }
 
-.auth-field input {
+.auth-field input,
+.auth-field textarea {
   font: inherit;
   color: var(--text-primary);
   background: rgba(255, 255, 255, 0.03);
@@ -5089,10 +5091,12 @@ textarea {
   border-radius: 12px;
   padding: 0.85rem 1rem;
   outline: none;
+  resize: vertical;
   transition: border-color 0.3s ease, box-shadow 0.3s ease;
 }
 
-.auth-field input:focus {
+.auth-field input:focus,
+.auth-field textarea:focus {
   border-color: rgba(201, 166, 107, 0.55);
   box-shadow: 0 0 0 3px rgba(201, 166, 107, 0.14);
 }

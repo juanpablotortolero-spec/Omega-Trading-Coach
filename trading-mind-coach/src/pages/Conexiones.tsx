@@ -95,15 +95,17 @@ function Conexiones() {
   };
 
   const handleUpdateBalance = async (accountId: string, newBalance: number) => {
-    await updateFundingAccountBalance(accountId, newBalance);
+    if (!user) return;
+    await updateFundingAccountBalance(user.id, accountId, newBalance);
     setAccounts((current) =>
       current.map((account) => (account.id === accountId ? { ...account, currentBalance: newBalance } : account)),
     );
   };
 
   const handleDelete = async (accountId: string) => {
+    if (!user) return;
     try {
-      await deleteFundingAccount(accountId);
+      await deleteFundingAccount(user.id, accountId);
       setAccounts((current) => current.filter((account) => account.id !== accountId));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo eliminar la cuenta.');

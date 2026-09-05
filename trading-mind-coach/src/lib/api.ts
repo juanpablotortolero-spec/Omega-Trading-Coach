@@ -729,7 +729,8 @@ export async function replaceOperations(
   const { error: deleteError } = await supabase
     .from('operations')
     .delete()
-    .eq('journal_entry_id', journalEntryId);
+    .eq('journal_entry_id', journalEntryId)
+    .eq('user_id', userId);
   if (deleteError) throw deleteError;
 
   const validOps = operations.filter((op) => op.symbol.trim() && op.direction);
@@ -2932,26 +2933,36 @@ export async function createFundingAccount(
   return mapFundingAccountRow(data, 0);
 }
 
-export async function updateFundingAccountBalance(accountId: string, newBalance: number): Promise<void> {
+export async function updateFundingAccountBalance(userId: string, accountId: string, newBalance: number): Promise<void> {
   const { error } = await supabase
     .from('funding_accounts')
     .update({ current_balance: newBalance, updated_at: new Date().toISOString() })
-    .eq('id', accountId);
+    .eq('id', accountId)
+    .eq('user_id', userId);
 
   if (error) throw error;
 }
 
-export async function updateFundingAccountStatus(accountId: string, status: FundingAccountStatus): Promise<void> {
+export async function updateFundingAccountStatus(
+  userId: string,
+  accountId: string,
+  status: FundingAccountStatus,
+): Promise<void> {
   const { error } = await supabase
     .from('funding_accounts')
     .update({ status, updated_at: new Date().toISOString() })
-    .eq('id', accountId);
+    .eq('id', accountId)
+    .eq('user_id', userId);
 
   if (error) throw error;
 }
 
-export async function deleteFundingAccount(accountId: string): Promise<void> {
-  const { error } = await supabase.from('funding_accounts').delete().eq('id', accountId);
+export async function deleteFundingAccount(userId: string, accountId: string): Promise<void> {
+  const { error } = await supabase
+    .from('funding_accounts')
+    .delete()
+    .eq('id', accountId)
+    .eq('user_id', userId);
   if (error) throw error;
 }
 
@@ -3095,7 +3106,8 @@ export async function replaceJournalFundingAccounts(
   const { error: deleteError } = await supabase
     .from('journal_funding_accounts')
     .delete()
-    .eq('journal_entry_id', journalEntryId);
+    .eq('journal_entry_id', journalEntryId)
+    .eq('user_id', userId);
   if (deleteError) throw deleteError;
 
   if (accountIds.length === 0) return;

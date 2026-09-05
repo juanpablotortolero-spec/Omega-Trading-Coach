@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import MissionBadge, { type MissionBadgeTier } from '../components/MissionBadge';
 
 const TIERS_IN_ORDER: { tier: MissionBadgeTier; rankTitle: string }[] = [
@@ -18,6 +19,9 @@ const TIERS_IN_ORDER: { tier: MissionBadgeTier; rankTitle: string }[] = [
 function BadgePreviewGallery() {
   return (
     <div className="badge-gallery-page">
+      <Link to="/dashboard" className="ghost-btn btn-sm">
+        ← Volver
+      </Link>
       <h1 className="badge-gallery-title">Tesorería del Ágora: Evolución de la Disciplina</h1>
       <p className="badge-gallery-subtitle">Las 7 medallas, de Bronce a Esmeralda — vista previa de diseño.</p>
 

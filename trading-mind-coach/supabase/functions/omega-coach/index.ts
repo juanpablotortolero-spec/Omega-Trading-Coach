@@ -6,7 +6,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import Anthropic from 'https://esm.sh/@anthropic-ai/sdk@0.32.1';
 import { corsHeaders } from '../_shared/cors.ts';
-import { buildSystemPrompt, OMEGA_TOOLS, type OmegaContext } from '../_shared/omega.ts';
+import { buildSystemPromptBlocks, OMEGA_TOOLS, type OmegaContext } from '../_shared/omega.ts';
 
 type InMessage = { role: 'user' | 'assistant'; content: string };
 
@@ -157,7 +157,7 @@ Deno.serve(async (req) => {
         // Auditoría Mensual es la más extensa de todas (varios campos de
         // varias frases cada uno) — necesita más margen que el resto.
         max_tokens: context.requestType === 'cierre_mensual' ? 6144 : isJsonOnlyMode ? 4096 : 2048,
-        system: buildSystemPrompt(context),
+        system: buildSystemPromptBlocks(context),
         ...(isJsonOnlyMode ? {} : { tools: OMEGA_TOOLS }),
         messages: conversation,
       });

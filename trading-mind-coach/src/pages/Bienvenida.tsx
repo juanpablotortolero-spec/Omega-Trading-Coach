@@ -80,6 +80,24 @@ function Bienvenida({ onComplete }: Props) {
     }
   };
 
+  /** Por qué "Siguiente" está deshabilitado — antes el botón se apagaba en silencio, sin decir qué falta. */
+  const missingFieldsHint = (): string | null => {
+    if (canAdvance()) return null;
+    switch (step) {
+      case 1:
+        return plan.setups.length === 0
+          ? 'Agrega al menos un setup para continuar.'
+          : 'Completa el nombre y la descripción de cada setup para continuar.';
+      case 4:
+        if (!hasText(plan.payout_plan)) return 'Completa tu plan de retiros para continuar.';
+        return plan.goals.length === 0
+          ? 'Agrega al menos una meta para continuar.'
+          : 'Completa el texto de cada meta para continuar.';
+      default:
+        return 'Completa todos los campos de este paso para continuar.';
+    }
+  };
+
   const finish = async (notes: string | null) => {
     if (!user) return;
     setSaving(true);
@@ -494,9 +512,18 @@ function Bienvenida({ onComplete }: Props) {
               </button>
             </div>
           ) : (
-            <button type="button" className="primary-btn btn-sm" onClick={goNext} disabled={!canAdvance()}>
-              Siguiente
-            </button>
+            <div className="onboarding-nav-end">
+              {!canAdvance() && <span className="hint-text">{missingFieldsHint()}</span>}
+              <button
+                type="button"
+                className="primary-btn btn-sm"
+                onClick={goNext}
+                disabled={!canAdvance()}
+                title={missingFieldsHint() ?? undefined}
+              >
+                Siguiente
+              </button>
+            </div>
           )}
         </div>
       </div>
