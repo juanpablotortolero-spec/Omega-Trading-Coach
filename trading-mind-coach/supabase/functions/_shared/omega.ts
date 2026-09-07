@@ -420,3 +420,113 @@ export const OMEGA_TOOLS = [
     cache_control: { type: 'ephemeral' },
   },
 ] as const;
+
+// ---------------------------------------------------------------------------
+// Evaluación silenciosa de disciplina/sesgos por operación — disparada por un
+// Database Webhook de Supabase (INSERT/UPDATE en `operations`), no por el
+// chat. Persona y tools DELIBERADAMENTE separadas del resto del archivo: acá
+// Omega nunca le habla al trader, solo produce salida estructurada vía tools,
+// una sola llamada sin loop (ninguna de las dos tools necesita un resultado
+// devuelto al modelo para continuar la conversación).
+// ---------------------------------------------------------------------------
+
+/** Columnas reales de `operations` relevantes acá (ver src/lib/api.ts:739-763). */
+export type OperationRecordForEval = {
+  id: string | number;
+  user_id: string;
+  symbol?: string | null;
+  direction?: string | null;
+  model?: string | null; // setup usado
+  quality?: string | null;
+  outcome?: string | null;
+  pnl?: number | null;
+  lot_size?: number | null;
+  broke_plan?: boolean | null;
+  lesson?: string | null; // nota del trader — "¿Qué aprendiste de esta operación?"
+  [key: string]: unknown;
+};
+
+export const OPERATION_EVALUATION_STATIC_PERSONA = `Sos Omega, el cerebro analítico de un coach de trading institucional. Acá NUNCA le hablás directo al trader — tu única salida es estructurada, a través de tools. Nada de texto libre, nada de prosa.
+
+Marco: estoico, crudo, sin lenguaje motivacional vacío. Evaluás DISCIPLINA (ejecución mecánica según el plan), nunca el resultado — una pérdida bien ejecutada dentro del plan no es indisciplina, y una ganancia rompiendo el plan sí lo es. El P&L es un dato, no un veredicto.
+
+Evaluás dos cosas en cada operación:
+1. Disciplina (0-100): qué tan apegada estuvo la ejecución al plan operativo, basado en broke_plan, la calidad de la nota (lesson) y la coherencia entre lo que dice haber hecho y lo que los números muestran.
+2. Sesgo conductual dominante — uno de estos cuatro, nunca más de uno:
+   - "tilt": deterioro emocional visible tras una pérdida — lotaje creciente sin justificación, entradas apresuradas, lenguaje de frustración o urgencia en la nota.
+   - "venganza": re-entrada inmediata claramente motivada por "recuperar" una pérdida anterior, sin una tesis de setup real.
+   - "fomo": entrada que persigue un movimiento ya en marcha, sin esperar confirmación (barrido de liquidez + reacción).
+   - "ninguno": sin evidencia concreta de ningún sesgo.
+
+Reglas de las tools:
+- registrar_evaluacion_disciplina es OBLIGATORIA: la invocás exactamente una vez, en cada evaluación, sin excepción — incluso cuando todo está perfecto.
+- disparar_alerta_riesgo es OPCIONAL: solo la invocás cuando hay evidencia CONCRETA y verificable de una infracción severa (sesgo claro + señal real en los datos, no una sospecha débil). No la uses por dudas menores ni "por las dudas".
+- Nunca inventés evidencia que no esté en los datos de abajo. Si la nota está vacía o es ambigua, decilo en el campo "reasoning" en vez de rellenar con una interpretación inventada.`;
+
+export function buildOperationEvaluationDynamicContext(trade: OperationRecordForEval): string {
+  return `Operación a evaluar (datos reales, no los inventes ni los completes):
+- symbol: ${trade.symbol ?? '—'}
+- direction: ${trade.direction ?? '—'}
+- setup (model): ${trade.model ?? '—'}
+- quality: ${trade.quality ?? '—'}
+- outcome: ${trade.outcome ?? '—'}
+- pnl: ${trade.pnl ?? '—'}
+- lot_size: ${trade.lot_size ?? '—'}
+- broke_plan: ${trade.broke_plan ?? '—'}
+- lesson (nota del trader): ${trade.lesson?.trim() || '(sin nota)'}
+
+Evaluá esta operación ahora con las tools disponibles.`;
+}
+
+export const OPERATION_EVALUATION_TOOLS = [
+  {
+    name: 'registrar_evaluacion_disciplina',
+    description:
+      'Registra la evaluación silenciosa de disciplina y sesgo conductual de ESTA operación. Obligatoria — se invoca siempre, en cada llamada.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        discipline_score: {
+          type: 'integer',
+          minimum: 0,
+          maximum: 100,
+          description: 'Apego a la ejecución del plan, 0-100. No es una nota al resultado (P&L).',
+        },
+        bias_detected: {
+          type: 'string',
+          enum: ['tilt', 'venganza', 'fomo', 'ninguno'],
+          description: "El sesgo conductual dominante detectado, o 'ninguno'.",
+        },
+        reasoning: {
+          type: 'string',
+          description: 'Evidencia concreta y breve (1-2 frases) que sostiene el score y el sesgo detectado.',
+        },
+      },
+      required: ['discipline_score', 'bias_detected', 'reasoning'],
+    },
+  },
+  {
+    name: 'disparar_alerta_riesgo',
+    description:
+      'Dispara una alerta de riesgo y/o sugiere bloquear la próxima sesión. Usar SOLO cuando la evidencia de indisciplina o sesgo es clara y concreta — nunca por dudas menores.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        severity: { type: 'string', enum: ['warning', 'critical'] },
+        message: {
+          type: 'string',
+          description: 'Mensaje corto y directo para mostrarle al trader más adelante — tono estoico, sin adornos.',
+        },
+        suggest_session_lock: {
+          type: 'boolean',
+          description: 'true si la infracción amerita sugerir bloquear la próxima sesión de trading.',
+        },
+        reason: { type: 'string', description: 'Motivo concreto y verificable de la alerta.' },
+      },
+      required: ['severity', 'message', 'suggest_session_lock', 'reason'],
+    },
+    // Mismo mecanismo de cache_control que OMEGA_TOOLS arriba — cubre el
+    // array completo de esta sección.
+    cache_control: { type: 'ephemeral' },
+  },
+] as const;

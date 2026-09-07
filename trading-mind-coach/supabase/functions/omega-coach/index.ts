@@ -6,9 +6,133 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import Anthropic from 'https://esm.sh/@anthropic-ai/sdk@0.32.1';
 import { corsHeaders } from '../_shared/cors.ts';
-import { buildSystemPromptBlocks, OMEGA_TOOLS, type OmegaContext } from '../_shared/omega.ts';
+import {
+  buildOperationEvaluationDynamicContext,
+  buildSystemPromptBlocks,
+  OMEGA_TOOLS,
+  OPERATION_EVALUATION_STATIC_PERSONA,
+  OPERATION_EVALUATION_TOOLS,
+  type OmegaContext,
+  type OperationRecordForEval,
+} from '../_shared/omega.ts';
 
 type InMessage = { role: 'user' | 'assistant'; content: string };
+
+/** Estructura estándar de un Database Webhook de Supabase. */
+type SupabaseWebhookPayload = {
+  type: 'INSERT' | 'UPDATE' | 'DELETE';
+  table: string;
+  schema: string;
+  record: OperationRecordForEval;
+  old_record: OperationRecordForEval | null;
+};
+
+/**
+ * Distingue el body de un Database Webhook (dispara Postgres, sin JWT de
+ * usuario, sin `messages`/`context`) del body normal del chat/auditorías —
+ * así una sola función atiende ambos triggers sin ambigüedad.
+ */
+function isDatabaseWebhookPayload(value: unknown): value is SupabaseWebhookPayload {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'type' in value &&
+    'table' in value &&
+    'record' in value &&
+    'schema' in value
+  );
+}
+
+/**
+ * Evaluación silenciosa de disciplina/sesgos sobre una operación, disparada
+ * por el Database Webhook de `operations` (INSERT/UPDATE) — no por el chat.
+ * Rama completamente separada: sin JWT de usuario (lo dispara Postgres), sin
+ * loop de tool-use (ninguna de las dos tools necesita un resultado devuelto
+ * al modelo para continuar), una sola llamada a Anthropic con el mismo
+ * mecanismo de prompt caching que el resto de esta función.
+ *
+ * Protegida por un secreto compartido en vez de un JWT — configurar el mismo
+ * valor en OPERATIONS_WEBHOOK_SECRET (secret del proyecto) y en el header
+ * personalizado `x-webhook-secret` del Database Webhook en el dashboard de
+ * Supabase, para que nadie pueda golpear este endpoint y gastar la API key
+ * de Anthropic sin ese secreto.
+ */
+async function handleOperationsWebhook(req: Request, payload: SupabaseWebhookPayload): Promise<Response> {
+  const expectedSecret = Deno.env.get('OPERATIONS_WEBHOOK_SECRET');
+  const providedSecret = req.headers.get('x-webhook-secret');
+  if (!expectedSecret || providedSecret !== expectedSecret) {
+    return new Response(JSON.stringify({ ok: false, error: 'No autorizado.' }), {
+      status: 401,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  if ((payload.type !== 'INSERT' && payload.type !== 'UPDATE') || payload.table !== 'operations') {
+    return new Response(JSON.stringify({ skipped: true, reason: 'No es un INSERT/UPDATE en operations.' }), {
+      status: 200,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY');
+  if (!anthropicKey) {
+    return new Response(JSON.stringify({ ok: false, error: 'Falta configurar ANTHROPIC_API_KEY.' }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  const trade = payload.record;
+
+  try {
+    const anthropic = new Anthropic({ apiKey: anthropicKey });
+
+    const response = await anthropic.messages.create({
+      model: MODEL,
+      max_tokens: 1024,
+      system: [
+        { type: 'text', text: OPERATION_EVALUATION_STATIC_PERSONA, cache_control: { type: 'ephemeral' } },
+        { type: 'text', text: buildOperationEvaluationDynamicContext(trade) },
+      ],
+      tools: OPERATION_EVALUATION_TOOLS,
+      messages: [{ role: 'user', content: 'Evaluá esta operación con las tools disponibles.' }],
+    });
+
+    // deno-lint-ignore no-explicit-any
+    const toolUses = response.content.filter((block: any) => block.type === 'tool_use');
+    // deno-lint-ignore no-explicit-any
+    const evaluationBlock = toolUses.find((t: any) => t.name === 'registrar_evaluacion_disciplina');
+    // deno-lint-ignore no-explicit-any
+    const alertBlock = toolUses.find((t: any) => t.name === 'disparar_alerta_riesgo');
+
+    const evaluation = evaluationBlock?.input ?? null;
+    const alert = alertBlock?.input ?? null;
+
+    if (!evaluation) {
+      console.warn(`omega-coach (operations webhook): operación ${trade.id} sin evaluación de disciplina.`);
+    }
+    if (alert) {
+      // deno-lint-ignore no-explicit-any
+      const alertInfo = alert as any;
+      console.log(
+        `omega-coach (operations webhook): alerta de riesgo (${alertInfo.severity}) en operación ${trade.id} — ${alertInfo.reason}`,
+      );
+    } else {
+      console.log(`omega-coach (operations webhook): operación ${trade.id} evaluada, sin alerta.`);
+    }
+
+    return new Response(JSON.stringify({ ok: true, operation_id: trade.id, evaluation, alert }), {
+      status: 200,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  } catch (error) {
+    console.error('omega-coach (operations webhook): error evaluando la operación:', error);
+    return new Response(
+      JSON.stringify({ ok: false, error: error instanceof Error ? error.message : 'Error desconocido' }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    );
+  }
+}
 
 type Effects = {
   virtusDelta: number;
@@ -27,6 +151,22 @@ const MODEL = Deno.env.get('OMEGA_MODEL') || 'claude-sonnet-5';
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
+  }
+
+  let rawBody: unknown;
+  try {
+    rawBody = await req.json();
+  } catch {
+    return new Response(JSON.stringify({ ok: false, error: 'JSON inválido en el body.' }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  // Database Webhook de Supabase sobre `operations` — rama separada del
+  // chat/auditorías de abajo, sin JWT de usuario (lo dispara Postgres).
+  if (isDatabaseWebhookPayload(rawBody)) {
+    return handleOperationsWebhook(req, rawBody);
   }
 
   try {
@@ -63,7 +203,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const body = (await req.json()) as { messages?: InMessage[]; context?: OmegaContext };
+    const body = rawBody as { messages?: InMessage[]; context?: OmegaContext };
     const inMessages = body.messages ?? [];
     if (inMessages.length === 0) {
       return new Response(JSON.stringify({ ok: false, error: 'Falta el mensaje.' }), {
