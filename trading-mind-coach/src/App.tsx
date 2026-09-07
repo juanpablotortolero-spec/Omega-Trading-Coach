@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
+import { AtaraxiaRealtimeProvider } from './contexts/AtaraxiaRealtimeContext';
 import { MailboxProvider } from './contexts/MailboxContext';
 import { getTradingPlan } from './lib/api';
 import Login from './components/Login';
@@ -90,7 +91,9 @@ function App() {
         <Route
           element={
             <MailboxProvider>
-              <MainLayout />
+              <AtaraxiaRealtimeProvider>
+                <MainLayout />
+              </AtaraxiaRealtimeProvider>
             </MailboxProvider>
           }
         >

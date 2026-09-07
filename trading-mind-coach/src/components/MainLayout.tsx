@@ -1,6 +1,7 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { AtaraxiaRealtimeProvider, useAtaraxiaIntervention } from '../contexts/AtaraxiaRealtimeContext';
 import { useMailbox } from '../contexts/MailboxContext';
 import { MedalProvider } from '../contexts/MedalContext';
 import { OmegaProvider } from '../contexts/OmegaContext';
@@ -9,6 +10,7 @@ import { getTodayBriefingAckStatus, getWeeklyKillSwitchStatus, touchPresence } f
 import { localIsoDate } from '../lib/calendar';
 import { getNotificationPermission, requestNotificationPermission, type NotificationPermissionState } from '../lib/desktopNotifications';
 import { useDesktopNotifications } from '../hooks/useDesktopNotifications';
+import AtaraxiaInterventionModal from './AtaraxiaInterventionModal';
 import MedalUnlockToast from './MedalUnlockToast';
 import OmegaAlertModal from './OmegaAlertModal';
 import OmegaMark from './OmegaMark';
@@ -61,9 +63,14 @@ function MainLayout() {
   const { user, signOut } = useAuth();
   const { version } = useRefresh();
   const { pendingRequests, mailboxCount } = useMailbox();
+  const { intervention: ataraxiaIntervention } = useAtaraxiaIntervention();
   const location = useLocation();
   const [navOpen, setNavOpen] = useState(false);
-  const [journalLocked, setJournalLocked] = useState(false);
+  const [weeklyKillSwitchActive, setWeeklyKillSwitchActive] = useState(false);
+  // "Nuevo journal" se bloquea por la cuarentena semanal de siempre O por una
+  // intervención de Ataraxia en vivo (zona Miedo/Indisciplina) recién
+  // disparada por Realtime — cualquiera de las dos alcanza.
+  const journalLocked = weeklyKillSwitchActive || Boolean(ataraxiaIntervention);
   const [hasUnreadBriefing, setHasUnreadBriefing] = useState(false);
   const [notifPermission, setNotifPermission] = useState<NotificationPermissionState>('default');
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -110,7 +117,7 @@ function MainLayout() {
     let cancelled = false;
 
     getWeeklyKillSwitchStatus(user.id, new Date()).then((status) => {
-      if (!cancelled) setJournalLocked(status.triggered !== null);
+      if (!cancelled) setWeeklyKillSwitchActive(status.triggered !== null);
     });
 
     return () => {
@@ -213,7 +220,11 @@ function MainLayout() {
               >
                 {item.label}
                 {item.path === '/journal/nuevo' && journalLocked && (
-                  <span className="nav-item-lock" title="Cuarentena activa esta semana" aria-hidden="true">
+                  <span
+                    className="nav-item-lock"
+                    title={ataraxiaIntervention ? 'Intervención de Ataraxia activa' : 'Cuarentena activa esta semana'}
+                    aria-hidden="true"
+                  >
                     🔒
                   </span>
                 )}
@@ -272,6 +283,7 @@ function MainLayout() {
       </div>
 
       <OmegaAlertModal />
+      <AtaraxiaInterventionModal />
       <MedalUnlockToast />
       {showOnboarding && <OnboardingCarousel onClose={handleCloseOnboarding} />}
     </MedalProvider>

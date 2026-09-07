@@ -2942,6 +2942,47 @@ textarea {
   width: 100%;
 }
 
+/* Intervención de Ataraxia (zona Miedo/Indisciplina, en vivo vía Realtime) —
+   mismo mecanismo de overlay que .omega-alert-backdrop, pero sin cierre por
+   click afuera: exige el acuse explícito mientras dura el bloqueo. */
+.ataraxia-intervention-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 95;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(6, 8, 12, 0.72);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.ataraxia-intervention-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 12px;
+  width: min(460px, 100%);
+  padding: 36px 32px;
+  background: var(--bg-surface);
+  border: 1px solid rgba(139, 58, 54, 0.4);
+  border-top: 3px solid var(--trade-bearish);
+  border-radius: 18px;
+  box-shadow: var(--shadow-soft), 0 0 40px rgba(139, 58, 54, 0.16);
+}
+
+.ataraxia-intervention-icon {
+  border-radius: 50%;
+  padding: 10px;
+}
+
+.ataraxia-intervention-message {
+  font-size: 1.05rem;
+  line-height: 1.6;
+}
+
 .nav-item.locked {
   opacity: 0.7;
 }

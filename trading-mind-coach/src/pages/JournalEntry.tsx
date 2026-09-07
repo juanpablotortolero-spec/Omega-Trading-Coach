@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type FormEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useAtaraxiaIntervention } from '../contexts/AtaraxiaRealtimeContext';
 import { useOmega } from '../contexts/OmegaContext';
 import { useRefresh } from '../contexts/RefreshContext';
 import { autoGrow } from '../lib/autoGrow';
@@ -233,6 +234,7 @@ function JournalEntry() {
     lastEffects: omegaLastEffects,
     error: omegaError,
   } = useOmega();
+  const { intervention: ataraxiaIntervention } = useAtaraxiaIntervention();
 
   useEffect(() => {
     if (!user) return;
@@ -1310,6 +1312,8 @@ function JournalEntry() {
               type="button"
               className="ghost-btn btn-sm"
               onClick={() => setOperations((current) => [...current, newOperation()])}
+              disabled={Boolean(ataraxiaIntervention)}
+              title={ataraxiaIntervention ? 'Bloqueado por la intervención de Ataraxia activa' : undefined}
             >
               + Agregar operación
             </button>

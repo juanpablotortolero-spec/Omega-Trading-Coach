@@ -5,6 +5,7 @@ import MonthCalendar from './MonthCalendar';
 import VirtusIcon, { type VirtusLevel } from './VirtusIcon';
 import VirtusProgressBar from './VirtusProgressBar';
 import { useAuth } from '../contexts/AuthContext';
+import { useAtaraxiaIntervention } from '../contexts/AtaraxiaRealtimeContext';
 import { useMailbox } from '../contexts/MailboxContext';
 import { useOmega } from '../contexts/OmegaContext';
 import { useRefresh } from '../contexts/RefreshContext';
@@ -121,6 +122,7 @@ function Dashboard() {
     new Map(),
   );
   const { lastEffects: omegaLastEffects } = useOmega();
+  const { intervention: ataraxiaIntervention } = useAtaraxiaIntervention();
   const { mailboxCount } = useMailbox();
 
   const today = new Date();
@@ -336,7 +338,12 @@ function Dashboard() {
                 <strong>Aún no registras tu sesión de hoy</strong>
                 <p className="hint-text">Sella tu journal para mantener tu racha y ganar Virtus</p>
               </div>
-              <button className="primary-btn btn-sm" onClick={() => navigate('/journal/nuevo')}>
+              <button
+                className="primary-btn btn-sm"
+                onClick={() => navigate('/journal/nuevo')}
+                disabled={Boolean(ataraxiaIntervention)}
+                title={ataraxiaIntervention ? 'Bloqueado por la intervención de Ataraxia activa' : undefined}
+              >
                 Registrar →
               </button>
             </>
