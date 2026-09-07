@@ -8,9 +8,9 @@ const SEVERITY_LABEL: Record<ActiveAlert['severity'], string> = {
 };
 
 /**
- * Montado una sola vez en MainLayout, junto a <OmegaChat /> (no adentro) —
- * así una alerta crítica disparada por el chat, el Oráculo Matutino o la
- * auditoría al sellar el journal se ve sin importar qué pantalla la disparó.
+ * Montado una sola vez en MainLayout — así una alerta crítica disparada por
+ * el Oráculo Matutino, la auditoría al sellar el journal o el webhook de
+ * evaluación de disciplina se ve sin importar qué pantalla la disparó.
  */
 function OmegaAlertModal() {
   const { uiAlerts, dismissAlert } = useOmega();

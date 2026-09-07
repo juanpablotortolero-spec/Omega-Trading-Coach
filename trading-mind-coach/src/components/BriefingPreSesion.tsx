@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useOmega } from '../contexts/OmegaContext';
 import { localIsoDate } from '../lib/calendar';
-import { EffectsSummary } from './OmegaChat';
+import EffectsSummary from './EffectsSummary';
 import OmegaMark from './OmegaMark';
 
 /**

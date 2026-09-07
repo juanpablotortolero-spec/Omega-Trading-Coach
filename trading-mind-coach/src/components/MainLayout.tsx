@@ -11,7 +11,6 @@ import { getNotificationPermission, requestNotificationPermission, type Notifica
 import { useDesktopNotifications } from '../hooks/useDesktopNotifications';
 import MedalUnlockToast from './MedalUnlockToast';
 import OmegaAlertModal from './OmegaAlertModal';
-import OmegaChat from './OmegaChat';
 import OmegaMark from './OmegaMark';
 import OnboardingCarousel from './OnboardingCarousel';
 
@@ -272,7 +271,6 @@ function MainLayout() {
       </main>
       </div>
 
-      <OmegaChat />
       <OmegaAlertModal />
       <MedalUnlockToast />
       {showOnboarding && <OnboardingCarousel onClose={handleCloseOnboarding} />}
