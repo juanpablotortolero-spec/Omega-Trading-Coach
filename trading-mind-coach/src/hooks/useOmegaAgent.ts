@@ -231,13 +231,17 @@ function buildSessionDigest(
       .map(([key, a]) => `- ${key}: ${a.answer}${a.note ? ` (${a.note})` : ''}`)
       .join('\n') || '(sin respuestas)';
 
+  // Precio/hora exactos por operación — sin esto Omega no tiene con qué ser
+  // quirúrgico (solo símbolo/modelo/resultado, nada anclable a un nivel real).
   const opsLines = operations.length
     ? operations
-        .map(
-          (op, i) =>
-            `${i + 1}. ${op.symbol || 'símbolo?'} — modelo: ${op.model || 'sin modelo'} · sesión: ${op.session ?? 'sin sesión'} · calidad: ${op.quality ?? '—'} · resultado: ${op.outcome ?? '—'} · P&L: ${op.pnl || '—'} · ¿rompió el plan?: ${op.brokePlan ? 'sí' : 'no'}`,
-        )
-        .join('\n')
+        .map((op, i) => {
+          const header = `${i + 1}. ${op.symbol || 'símbolo?'}${op.direction ? ` ${op.direction}` : ''} — modelo: ${op.model || 'sin modelo'} · sesión: ${op.session ?? 'sin sesión'} · calidad: ${op.quality ?? '—'} · resultado: ${op.outcome ?? '—'} · P&L: ${op.pnl || '—'} · ¿rompió el plan?: ${op.brokePlan ? 'sí' : 'no'}`;
+          const precision = `   Entrada: ${op.entryPrice || '—'}${op.entryTime ? ` a las ${op.entryTime}` : ''} · SL: ${op.stopLoss || '—'} · TP: ${op.takeProfit || '—'} · R:R: ${op.riskReward || '—'} · lote: ${op.lotSize || '—'}${op.exitTime ? ` · salida: ${op.exitTime}` : ''}`;
+          const lessonLine = op.lesson.trim() ? `   Lección escrita por el trader: "${op.lesson.trim()}"` : '';
+          return [header, precision, lessonLine].filter(Boolean).join('\n');
+        })
+        .join('\n\n')
     : '(sin operaciones registradas)';
 
   return `SESIÓN DEL ${date} — cruce journal + Manual Operativo:
@@ -261,7 +265,14 @@ Reglas relevantes del Manual Operativo:
 - Plan ante rachas negativas: ${plan?.losing_streak_plan || '(no definido)'}
 - Reglas de análisis técnico: ${plan?.market_analysis_rules || '(no definidas)'}
 - Reglas de preservación de capital: ${plan?.capital_preservation_rules || '(no definidas)'}
-- Setups definidos: ${plan?.setups?.length ? plan.setups.map((s) => s.name).filter(Boolean).join(', ') || '(sin nombres)' : '(sin setups definidos)'}`;
+- Setups definidos: ${
+    plan?.setups?.length
+      ? plan.setups
+          .filter((s) => s.name)
+          .map((s) => `${s.name}${s.description ? ` — criterio: ${s.description}` : ''}`)
+          .join('; ') || '(sin nombres)'
+      : '(sin setups definidos)'
+  }`;
 }
 
 /**

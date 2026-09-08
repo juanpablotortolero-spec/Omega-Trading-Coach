@@ -3,6 +3,7 @@
 // server-side (Service Role — el navegador nunca escribe estas tablas
 // directamente), y devuelve al navegador solo el texto final + un resumen de
 // los efectos ya aplicados para que el hook actualice la UI.
+/// <reference types="https://esm.sh/@supabase/functions-js/src/edge-runtime.d.ts" />
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import Anthropic from 'https://esm.sh/@anthropic-ai/sdk@0.32.1';
 import { corsHeaders } from '../_shared/cors.ts';
@@ -17,6 +18,61 @@ import {
 } from '../_shared/omega.ts';
 
 type InMessage = { role: 'user' | 'assistant'; content: string };
+
+// Mismo modelo local/gratuito (gte-small, 384 dim) que generar-embeddings usa
+// para escribir trade_embeddings — acá se usa para EMBEDDER el digest de hoy
+// y buscar, por similitud, las lecciones más parecidas de sesiones pasadas
+// (ver fetchHistoricalPatterns). Instancia única a nivel de módulo, igual que
+// generar-embeddings, para reutilizar el modelo "tibio" entre invocaciones.
+const embeddingModel = new Supabase.ai.Session('gte-small');
+const EMBEDDING_DIMENSIONS = 384;
+
+/**
+ * Búsqueda vectorial sobre trade_embeddings (pgvector) vía el RPC
+ * match_trade_embeddings (ver SQL entregado al usuario) — recupera las
+ * lecciones de operaciones PASADAS (antes de `beforeDate`) más parecidas al
+ * digest de la sesión de hoy, para que Omega pueda señalar una recaída real
+ * en vez de una intuición sin evidencia. Deliberadamente resiliente: un fallo
+ * acá (modelo, RPC, lo que sea) nunca debe tumbar la auditoría — es un
+ * enriquecimiento del prompt, no una dependencia dura.
+ */
+async function fetchHistoricalPatterns(
+  // deno-lint-ignore no-explicit-any
+  adminClient: any,
+  userId: string,
+  queryText: string,
+  beforeDate: string,
+): Promise<{ date: string; lesson: string; model: string | null; symbol: string | null }[]> {
+  const trimmed = queryText.trim();
+  if (!trimmed) return [];
+
+  try {
+    const output = await embeddingModel.run(trimmed, { mean_pool: true, normalize: true });
+    const embedding = Array.from(output as ArrayLike<number>);
+    if (embedding.length !== EMBEDDING_DIMENSIONS) {
+      throw new Error(`gte-small devolvió ${embedding.length} dimensiones, se esperaban ${EMBEDDING_DIMENSIONS}.`);
+    }
+
+    const { data, error } = await adminClient.rpc('match_trade_embeddings', {
+      p_user_id: userId,
+      p_query_embedding: embedding,
+      p_before_date: beforeDate,
+      p_match_count: 3,
+    });
+    if (error) throw error;
+
+    // deno-lint-ignore no-explicit-any
+    return ((data ?? []) as any[]).map((row) => ({
+      date: row.entry_date,
+      lesson: row.lesson,
+      model: row.model ?? null,
+      symbol: row.symbol ?? null,
+    }));
+  } catch (error) {
+    console.warn('omega-coach: no se pudo recuperar el historial vectorial (se sigue sin él):', error);
+    return [];
+  }
+}
 
 /** Estructura estándar de un Database Webhook de Supabase. */
 type SupabaseWebhookPayload = {
@@ -215,6 +271,21 @@ Deno.serve(async (req) => {
 
     const adminClient = createClient(supabaseUrl, serviceRoleKey);
     const anthropic = new Anthropic({ apiKey: anthropicKey });
+
+    // Contexto histórico (RAG): solo en las dos auditorías reales, que son
+    // las únicas que traen un sessionDigest con lecciones de hoy para
+    // comparar contra el pasado — chat suelto y briefing no lo necesitan.
+    if (
+      (context.requestType === 'auditoria_post_sesion' || context.requestType === 'auditoria_head_coach') &&
+      context.sessionDigest
+    ) {
+      context.historicalPatterns = await fetchHistoricalPatterns(
+        adminClient,
+        user.id,
+        context.sessionDigest,
+        context.sessionDate ?? new Date().toISOString().slice(0, 10),
+      );
+    }
 
     // Rotación de misiones: soft-expire (no borrado, mantiene la memoria
     // conductual) de las misiones de assign_ai_mission que llevan más de 24hs

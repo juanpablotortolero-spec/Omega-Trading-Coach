@@ -78,6 +78,15 @@ export type OmegaContext = {
    * captura real en vez de solo la descripción textual de la operación.
    */
   screenshotUrls?: string[];
+  /**
+   * Lecciones de operaciones PASADAS más parecidas semánticamente a la sesión
+   * de hoy — recuperadas por index.ts con una búsqueda vectorial (pgvector +
+   * gte-small, ver match_trade_embeddings) sobre trade_embeddings, ANTES de
+   * armar el prompt. Solo auditoria_post_sesion y auditoria_head_coach la
+   * completan (index.ts) — le sirve a Omega para señalar recaídas reales en
+   * un patrón de semanas anteriores, no una intuición sin evidencia.
+   */
+  historicalPatterns?: { date: string; lesson: string; model?: string | null; symbol?: string | null }[];
 };
 
 /** Umbral del candado de riesgo: a partir de acá, la advertencia y la misión de reducción de riesgo son obligatorias. */
@@ -125,6 +134,13 @@ function formatActiveMissionsBlock(context: OmegaContext): string {
     .join('\n')}\n`;
 }
 
+function formatHistoricalPatternsBlock(context: OmegaContext): string {
+  if (!context.historicalPatterns || context.historicalPatterns.length === 0) return '';
+  return `\nPatrones históricos detectados (lecciones más parecidas de SESIONES PASADAS, recuperadas del sistema vectorial — si el fallo de hoy se parece a alguna de estas, es una recaída, no un hecho aislado: nómbralo explícitamente citando la fecha):\n${context.historicalPatterns
+    .map((p) => `- ${p.date}${p.symbol ? ` (${p.symbol}${p.model ? ` — ${p.model}` : ''})` : ''}: "${p.lesson}"`)
+    .join('\n')}\n`;
+}
+
 function formatMissionReflectionsBlock(context: OmegaContext): string {
   if (!context.missionReflections || context.missionReflections.length === 0) return '';
   return `\nRespuestas de reflexión que el trader ya escribió en misiones de autorreflexión (memoria conductual real — evaluá si alguna amerita mover el progreso de la misión correspondiente con update_mission_progress, o si te sirve para cruzar un patrón repetido en tu diagnóstico de hoy):\n${context.missionReflections
@@ -135,7 +151,7 @@ function formatMissionReflectionsBlock(context: OmegaContext): string {
 const REQUEST_TYPE_INSTRUCTIONS: Record<OmegaRequestType, string> = {
   chat: 'Esta es una charla normal — responde con criterio, sin forzar veredictos ni tools si no corresponden.',
   auditoria_post_sesion:
-    'Esto es una AUDITORÍA POST-SESIÓN formal, no una charla casual — cruza el journal con las reglas del Manual Operativo de arriba, y usa la tool evaluate_session para dejar un veredicto estructurado (qué se hizo bien, qué se hizo mal) además de cualquier otra tool que corresponda. No te limites a describir las acciones en texto: ejecútalas.',
+    'Esto es una AUDITORÍA POST-SESIÓN formal, no una charla casual — cruza el journal con las reglas del Manual Operativo de arriba, y usa la tool evaluate_session para dejar un veredicto estructurado (qué se hizo bien, qué se hizo mal) además de cualquier otra tool que corresponda. No te limites a describir las acciones en texto: ejecútalas. ANÁLISIS QUIRÚRGICO OBLIGATORIO: prohibido un veredicto vago tipo "lo hiciste bien" o "cuidado con el riesgo" sin anclarlo a un dato real — cada afirmación sobre disciplina rota o sostenida tiene que citar el nivel de precio exacto (entrada/SL/TP), la ventana horaria exacta, y el concepto ICT/Order Flow concreto (barrido de liquidez, order block, FVG, killzone, persecución de precio) tal como aparecen en las operaciones del digest de abajo — nunca inventes un precio o una hora que el digest no traiga; si un dato no está, decilo en vez de fabricarlo. Si el contexto trae "Patrones históricos detectados", revisa si el fallo de hoy repite alguno — si es así, nómbralo explícitamente como recaída, citando la fecha de la sesión anterior, en vez de tratarlo como un hecho aislado.',
   briefing_pre_sesion:
     'Esto es un BRIEFING PRE-SESIÓN — el trader todavía no ha operado hoy. No hay journal que auditar. Genera proactivamente un briefing corto basado en las reglas de su Manual Operativo para hoy y su tendencia reciente de Virtus/Ataraxia (ambas en el contexto): qué debe vigilar, qué patrón reciente no debe repetir, y un recordatorio de una regla concreta de su plan. El digest trae el "último veredicto guardado" (se hizo bien / se hizo mal de la sesión anterior) — úsalo explícitamente como arrastre: el plan de acción de HOY tiene que nacer de corregir lo que salió mal ayer o sostener lo que salió bien, no ser un consejo genérico desconectado de eso. Si el digest trae noticias de alto impacto reales para hoy (CPI, NFP, FOMC, etc.) Y el trader tiene un "Plan ante eventos macro" definido, cruza ambos explícitamente en tu respuesta (ej. "Hoy hay CPI a las 8:30 AM. Tu manual dicta no operar 15 minutos antes ni después de la noticia. Modula tu riesgo.") — no los menciones por separado sin conectarlos. No inventes datos de operaciones — hoy todavía no hay ninguna. Si hay metas automáticas en el contexto, cierra el briefing señalando cuál está más rezagada y qué acción concreta de HOY la empujaría — no la ignores ni la dejes solo como un dato de fondo. Estructura obligatoria: un párrafo corto por idea, separados con salto de línea real (nunca todo en un solo bloque) — por ejemplo, un párrafo para el arrastre de ayer, otro para las reglas duras de hoy, otro para el patrón a vigilar, y un cierre con la meta más rezagada. Sin markdown, sin nombrar autores ni libros.',
   // No se usa nunca — buildSystemPrompt retorna antes de llegar acá para este requestType (ver buildHeadCoachSystemPrompt).
@@ -160,10 +176,15 @@ function buildHeadCoachSystemPrompt(context: OmegaContext): string {
 
 Sé conciso en cada campo de texto (1-2 frases, nunca un párrafo largo) y limita "strengths" y "weaknesses" a máximo 2 elementos cada uno, y "daily_missions" a máximo 2 — el JSON completo tiene que caber holgado en tu respuesta, sin cortarse a mitad de un campo.
 
+ANÁLISIS QUIRÚRGICO OBLIGATORIO: cada "behavior" (en "strengths" y en "weaknesses") tiene que anclarse a un dato real de una operación del digest — nivel de precio exacto (entrada/SL/TP), ventana horaria exacta, o concepto ICT/Order Flow concreto (barrido de liquidez, order block, FVG, killzone, persecución de precio). Prohibido un "behavior" vago tipo "mal manejo de riesgo" o "buena disciplina" sin ese anclaje. Nunca inventes un precio o una hora que el digest no traiga — si el dato no está, no lo menciones.
+
+MISIONES: cada "daily_missions" tiene que derivar MECÁNICAMENTE del fallo concreto ya señalado en "weaknesses" (o de un patrón histórico recurrente si el contexto trae "Patrones históricos detectados") y describir una condición de ejecución verificable — nunca una misión genérica o de bienestar vacío ("toma agua", "respira hondo", "tómate un descanso"). Nivel exigido, ejemplo real: si hubo una re-entrada por venganza tras un stop loss, la misión NO es "controla tus emociones" sino "Ejecución condicional: tamaño de lote reducido al 50% y prohibición absoluta de re-entrada tras el primer stop loss."
+
 Contexto real del trader (no lo inventes, úsalo tal cual): Rango Virtus ${context.virtusStage}, Virtus total ${context.virtusTotal}, Ataraxia ${context.ataraxiaPct !== null ? `${context.ataraxiaPct}%` : 'sin datos suficientes todavía hoy'}.
-${formatFundingAccountsBlock(context)}${formatAutomaticGoalsBlock(context)}
+${formatFundingAccountsBlock(context)}${formatAutomaticGoalsBlock(context)}${formatHistoricalPatternsBlock(context)}
 ${context.screenshotUrls && context.screenshotUrls.length > 0 ? `Este mensaje incluye ${context.screenshotUrls.length} captura(s) real(es) del gráfico operado hoy, como imágenes adjuntas — analízalas técnicamente (estructura de precio, ubicación de la liquidez, order blocks, FVGs, zonas operativas) y usa esa lectura concreta como evidencia en "strengths"/"weaknesses" (behavior/hypothesis/fix) o en "daily_feedback": no las ignores ni te limites al texto del digest.\n` : ''}Si el CANDADO DE RIESGO está activado arriba: "daily_feedback" tiene que reflejar la advertencia severa explícitamente (no la omitas ni la suavices), y uno de los "daily_missions" tiene que ser, concretamente, una misión de reducción de riesgo (ej. bajar el lotaje o el riesgo por operación) — no una misión genérica.
-Si arriba hay metas automáticas, "daily_feedback" debe mencionar en una frase cómo el desempeño de hoy la acerca o la aleja — no la ignores solo porque este JSON no tiene un campo dedicado a eso.`;
+Si arriba hay metas automáticas, "daily_feedback" debe mencionar en una frase cómo el desempeño de hoy la acerca o la aleja — no la ignores solo porque este JSON no tiene un campo dedicado a eso.
+Si arriba hay "Patrones históricos detectados" y el fallo de hoy se parece a alguno, "daily_feedback" o el "weaknesses" correspondiente tiene que nombrarlo explícitamente como recaída, citando la fecha de la sesión anterior.`;
 }
 
 /**
@@ -224,7 +245,7 @@ Tienes acceso a 8 herramientas. Úsalas con criterio, no en cada respuesta — y
 - update_virtus_and_xp: para premiar ejecución mecánica impecable o castigar indisciplina real (romper el plan, exceder el riesgo, operar fuera de ventana, venganza). No la uses por charla casual.
 - validate_positive_streak: cuando identifiques una racha real de disciplina sostenida (varios días o sesiones seguidas cumpliendo el plan) — reconocimiento explícito, distinto de un premio puntual.
 - trigger_ui_alert: solo para conductas destructivas que requieren interrumpir al trader AHORA (riesgo de venganza, ruptura repetida del plan) — usa 'warning' o 'critical' para eso; 'info' solo para un aviso menor no urgente.
-- assign_ai_mission: misión concreta y medible ligada a un patrón real — puede ser diaria, semanal o única. Toda misión creada expira a las 24hs si no se completa (rotación automática, no hace falta que lo gestiones vos). Marca requires_reflection en true SOLO cuando la misión es de autorreflexión pura (ej. identificar detonantes de ansiedad pre-sesión, escribir qué gatilla una entrada por venganza) — eso le habilita al trader un espacio de texto para responder directamente en la tarjeta; para misiones de acción concreta (ej. "reduce tu lotaje", "espera el barrido antes de entrar") dejalo en false.
+- assign_ai_mission: misión concreta y medible ligada a un patrón real — puede ser diaria, semanal o única. Toda misión creada expira a las 24hs si no se completa (rotación automática, no hace falta que lo gestiones vos). Marca requires_reflection en true SOLO cuando la misión es de autorreflexión pura (ej. identificar detonantes de ansiedad pre-sesión, escribir qué gatilla una entrada por venganza) — eso le habilita al trader un espacio de texto para responder directamente en la tarjeta; para misiones de acción concreta (ej. "reduce tu lotaje", "espera el barrido antes de entrar") dejalo en false. PROHIBIDO terminantemente sugerir misiones genéricas o de bienestar vacío ("toma agua", "respira hondo", "tómate un descanso", "mantén la calma") — cada misión tiene que nacer MECÁNICAMENTE del fallo concreto detectado hoy (o de un patrón histórico recurrente si el contexto lo trae) y describir una condición de ejecución verificable, no una intención vaga. Nivel exigido, ejemplo real: si hubo una re-entrada por venganza tras un stop loss, la misión NO es "controla tus emociones" sino "Ejecución condicional: tamaño de lote reducido al 50% y prohibición absoluta de re-entrada tras el primer stop loss."
 - update_goal_progress: solo para las metas listadas como "automáticas" abajo (las 'manual' las controla el trader con su propio slider, nunca las toques) — cuando haya evidencia real de avance o retroceso hacia una de esas metas en esta sesión o conversación. Usa el id exacto listado. Muévete de a poco (delta modesto, normalmente entre 3 y 15 puntos; negativo si hubo un retroceso real) — una meta se construye de a poco, nunca de un salto a 100%. No la uses sin una razón concreta y verificable. IMPORTANTE: cuando la uses, mencioná también en tu respuesta de texto qué hizo el trader que la impulsó (o qué le falta concretamente) — nunca la muevas en silencio sin que el trader se entere por qué cambió.
 - update_mission_progress: revisa las "misiones activas" listadas abajo contra la evidencia real de esta sesión o conversación — nunca le preguntes al trader si la cumplió, decidilo vos con los datos reales (journal, operaciones, lo que te cuenta). Si hay evidencia de avance total o parcial, usa esta tool con un delta_pct (puede ser 100 de una vez si la evidencia es concluyente y binaria, o modesto si es progreso parcial). El trader ya NO puede marcar sus propias misiones como completadas — esta tool es el único camino.
 - credit_psychological_growth: SOLO en auditoría post-sesión real, y SOLO si el contexto trae un "último veredicto guardado" para comparar. Usa 'correccion' si la sesión de HOY muestra evidencia concreta de que el trader corrigió activamente algo de "Se hizo mal" de ese veredicto anterior; usa 'fortaleza' si sostuvo algo de "Se hizo bien". No la uses sin ese veredicto previo como referencia, y no la uses por una mejora genérica sin conexión clara a algo ya señalado antes — y mencionalo explícitamente en tu respuesta, nunca en silencio.
@@ -240,7 +261,7 @@ function buildOmegaDynamicContext(context: OmegaContext): string {
 - Rango Virtus: ${context.virtusStage}
 - Puntos Virtus totales: ${context.virtusTotal}
 - Ataraxia (ejecución mecánica y paz mental) hoy: ${context.ataraxiaPct !== null ? `${context.ataraxiaPct}%` : 'sin datos suficientes todavía hoy'}
-${formatAutomaticGoalsBlock(context)}${formatActiveMissionsBlock(context)}${formatMissionReflectionsBlock(context)}${formatPreviousVerdictBlock(context)}${formatFundingAccountsBlock(context)}${context.sessionDigest ? `\n${context.sessionDigest}\n` : ''}
+${formatAutomaticGoalsBlock(context)}${formatActiveMissionsBlock(context)}${formatMissionReflectionsBlock(context)}${formatPreviousVerdictBlock(context)}${formatFundingAccountsBlock(context)}${formatHistoricalPatternsBlock(context)}${context.sessionDigest ? `\n${context.sessionDigest}\n` : ''}
 ${context.screenshotUrls && context.screenshotUrls.length > 0 ? `\nEste mensaje incluye ${context.screenshotUrls.length} captura(s) real(es) del journal, como imágenes adjuntas. Analízalas técnicamente (estructura de precio, ubicación real de la liquidez — barridos, equal highs/lows, rangos previos —, order blocks, FVGs y las zonas operativas que reflejan) y cita explícitamente lo que ves en cada una — no las ignores ni te limites al texto del digest. Estructura tu respuesta en dos ideas claramente separadas (cada una en su propio párrafo, respetando el Formato de arriba): primero la lectura técnica de lo que muestra la imagen, después el veredicto psicológico/disciplinario que se desprende de esa lectura — nunca mezclado en una sola idea.\n` : ''}
 ${REQUEST_TYPE_INSTRUCTIONS[requestType]}`;
 }
