@@ -325,6 +325,12 @@ Deno.serve(async (req) => {
       conversation.push({ role: 'user', content: toolResults });
     }
 
+    if (context.requestType === 'auditoria_post_sesion' && !effects.sessionVerdict) {
+      console.warn(
+        `omega-coach (auditoria_post_sesion): usuario ${user.id}, sesión ${context.sessionDate ?? 'hoy'} — Omega NO llamó a evaluate_session. sessionDigest presente: ${Boolean(context.sessionDigest)}.`,
+      );
+    }
+
     // El briefing pre-sesión pasa de efímero (sessionStorage) a persistido —
     // upsert por (user_id, briefing_date): si ya existía (el trader visitó
     // Dashboard y OmegaDashboard el mismo día), esto solo pisa `content`,
@@ -348,6 +354,9 @@ Deno.serve(async (req) => {
         const cleaned = finalText.trim().replace(/^```(?:json)?\s*|\s*```$/g, '');
         parsed = JSON.parse(cleaned);
       } catch {
+        console.error(
+          `omega-coach (auditoria_head_coach): JSON inválido para usuario ${user.id} — respuesta cruda: ${finalText.slice(0, 500)}`,
+        );
         return new Response(JSON.stringify({ ok: false, error: 'Omega no devolvió un JSON válido.' }), {
           status: 502,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -457,6 +466,7 @@ Deno.serve(async (req) => {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'No se pudo contactar a Omega.';
+    console.error('omega-coach (chat/auditoría): error en la request autenticada:', error);
     return new Response(JSON.stringify({ ok: false, error: message }), {
       status: 400,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

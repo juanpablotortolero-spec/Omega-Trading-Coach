@@ -6138,6 +6138,18 @@ textarea {
   gap: 18px;
 }
 
+.omega-manual-audit-bar {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 10px 0 4px;
+}
+
+.omega-manual-audit-bar .omega-chat-error {
+  margin: 0;
+}
+
 .omega-briefing-title {
   font-family: 'Cinzel', serif;
   font-size: 1.4rem;

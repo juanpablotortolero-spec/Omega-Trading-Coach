@@ -63,7 +63,7 @@ function WaitingForSealPanel() {
 
 function OmegaDashboard() {
   const { user } = useAuth();
-  const { sending, requestWeeklyRecap, requestMonthlyClose } = useOmega();
+  const { sending, requestHeadCoachAudit, requestWeeklyRecap, requestMonthlyClose, evaluateSession } = useOmega();
   const { version, bump } = useRefresh();
   const todayIso = localIsoDate(new Date());
 
@@ -89,6 +89,9 @@ function OmegaDashboard() {
     acknowledged: false,
   });
   const [acknowledging, setAcknowledging] = useState(false);
+
+  const [manualAuditing, setManualAuditing] = useState(false);
+  const [manualAuditError, setManualAuditError] = useState<string | null>(null);
 
   const [aiMissions, setAiMissions] = useState<AiMission[]>([]);
   const [goals, setGoals] = useState<GoalItem[]>([]);
@@ -270,6 +273,30 @@ function OmegaDashboard() {
     }
   };
 
+  /**
+   * Botón temporal de emergencia (Día 1 en producción): reintenta manualmente
+   * la MISMA auditoría que debería haberse disparado sola al sellar (ver
+   * JournalEntry.tsx) para los casos en que falló en silencio. Reintenta
+   * también evaluate_session (Ataraxia/ai_session_verdicts) en paralelo —
+   * distinta tabla, mismo momento de fallo — pero el éxito/error mostrado
+   * acá es el de omega_audits, que es lo que pintan estas 3 pestañas.
+   */
+  const handleManualAudit = async () => {
+    if (!user || manualAuditing) return;
+    setManualAuditing(true);
+    setManualAuditError(null);
+    try {
+      const result = await requestHeadCoachAudit();
+      setAudit(result);
+      bump();
+    } catch (err) {
+      setManualAuditError(err instanceof Error ? err.message : 'No se pudo generar la auditoría.');
+    } finally {
+      setManualAuditing(false);
+    }
+    evaluateSession(todayIso).catch(() => {});
+  };
+
   const handleAcknowledgeBriefing = async () => {
     if (!user || acknowledging) return;
     setAcknowledging(true);
@@ -331,6 +358,15 @@ function OmegaDashboard() {
           </button>
         ))}
       </div>
+
+      {todaySealed && (
+        <div className="omega-manual-audit-bar">
+          <button type="button" className="ghost-btn btn-sm" onClick={handleManualAudit} disabled={manualAuditing}>
+            {manualAuditing ? 'Auditando…' : audit ? 'Reintentar auditoría de hoy' : 'Auditar sesión de hoy'}
+          </button>
+          {manualAuditError && <p className="omega-chat-error">{manualAuditError}</p>}
+        </div>
+      )}
 
       {activeTab === 'briefing' && (
         <div className="omega-tab-panel">
