@@ -113,6 +113,19 @@ function isDatabaseWebhookPayload(value: unknown): value is SupabaseWebhookPaylo
  * Supabase, para que nadie pueda golpear este endpoint y gastar la API key
  * de Anthropic sin ese secreto.
  */
+/**
+ * PAUSADO por costo (ver auditoría de gasto de Anthropic): esta evaluación
+ * llama a Claude en cada INSERT/UPDATE de `operations` (y por cómo
+ * replaceOperations hace delete+insert completo dos veces por journal —
+ * Fase 2 y sello final — cada operación la disparaba DOS veces), pero
+ * `evaluation`/`alert` nunca se persisten ni se leen desde ningún lado: el
+ * Database Webhook de Postgres dispara y no lee la respuesta HTTP. Es decir,
+ * gasto real sin ningún valor de producto hoy. Para reactivar: poner esto en
+ * false una vez que `evaluation`/`alert` se conecten a algo real (guardarlos
+ * en una tabla, o disparar una alerta visible al trader).
+ */
+const OPERATION_EVALUATION_PAUSED = true;
+
 async function handleOperationsWebhook(req: Request, payload: SupabaseWebhookPayload): Promise<Response> {
   const expectedSecret = Deno.env.get('OPERATIONS_WEBHOOK_SECRET');
   const providedSecret = req.headers.get('x-webhook-secret');
@@ -125,6 +138,13 @@ async function handleOperationsWebhook(req: Request, payload: SupabaseWebhookPay
 
   if ((payload.type !== 'INSERT' && payload.type !== 'UPDATE') || payload.table !== 'operations') {
     return new Response(JSON.stringify({ skipped: true, reason: 'No es un INSERT/UPDATE en operations.' }), {
+      status: 200,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  if (OPERATION_EVALUATION_PAUSED) {
+    return new Response(JSON.stringify({ skipped: true, reason: 'Evaluación por operación pausada por costo — ver OPERATION_EVALUATION_PAUSED.' }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
@@ -372,6 +392,14 @@ Deno.serve(async (req) => {
         ...(isJsonOnlyMode ? {} : { tools: OMEGA_TOOLS }),
         messages: conversation,
       });
+
+      // Telemetría real de costo/caching — sin esto, "¿está funcionando el
+      // prompt caching?" es una suposición. cache_read_input_tokens alto
+      // relativo a input_tokens confirma que el cache_control de arriba
+      // realmente está pegando, no solo declarado en el código.
+      console.log(
+        `omega-coach usage (${context.requestType ?? 'chat'}, iter ${iteration}): ${JSON.stringify(response.usage)}`,
+      );
 
       const textBlocks = response.content.filter((block) => block.type === 'text');
       finalText = textBlocks.map((block) => (block as { text: string }).text).join('\n').trim();

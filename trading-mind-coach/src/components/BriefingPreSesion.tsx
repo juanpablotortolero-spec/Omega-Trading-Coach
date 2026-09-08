@@ -1,16 +1,23 @@
 import { useEffect, useRef, useState } from 'react';
+import { useAuth } from '../contexts/AuthContext';
 import { useOmega } from '../contexts/OmegaContext';
+import { getBriefingByDate } from '../lib/api';
 import { localIsoDate } from '../lib/calendar';
 import EffectsSummary from './EffectsSummary';
 import OmegaMark from './OmegaMark';
 
 /**
- * Briefing pre-sesión para OmegaDashboard — MISMA clave de sessionStorage que
- * OraculoMatutino.tsx (Dashboard normal): es literalmente el mismo briefing
- * del día mostrado en dos pantallas, así visitar ambas el mismo día no
- * duplica la llamada a Anthropic.
+ * Briefing pre-sesión para OmegaDashboard. `sessionStorage` es solo una
+ * micro-cache para no repetir la consulta al servidor en cada remount DENTRO
+ * de la misma pestaña — la fuente de verdad real es `omega_briefings`
+ * (persistido por omega-coach al generarlo). Antes esto confiaba únicamente
+ * en `sessionStorage`, que se vacía al cerrar la pestaña/navegador: cada
+ * sesión de browser nueva el mismo día volvía a llamar a Anthropic desde
+ * cero aunque el briefing de hoy ya existiera guardado — gasto real sin
+ * ningún beneficio. Ahora SIEMPRE se chequea el servidor primero.
  */
 function BriefingPreSesion() {
+  const { user } = useAuth();
   const { messages, sending, error, lastEffects, requestBriefing } = useOmega();
   const todayIso = localIsoDate(new Date());
   const storageKey = `omega-briefing-${todayIso}`;
@@ -20,13 +27,35 @@ function BriefingPreSesion() {
   const requestedRef = useRef(false);
 
   useEffect(() => {
-    if (requestedRef.current) return;
+    if (requestedRef.current || !user) return;
     requestedRef.current = true;
-    if (sessionStorage.getItem(storageKey)) return;
+
+    const cached = sessionStorage.getItem(storageKey);
+    if (cached) {
+      setBriefingText(cached);
+      return;
+    }
+
     setWaiting(true);
-    requestBriefing();
+    getBriefingByDate(user.id, todayIso)
+      .then((existing) => {
+        if (existing) {
+          setBriefingText(existing);
+          sessionStorage.setItem(storageKey, existing);
+          setWaiting(false);
+          return;
+        }
+        // Recién acá, con el servidor confirmando que HOY no hay briefing
+        // guardado, se justifica gastar una llamada real a Anthropic.
+        requestBriefing();
+      })
+      .catch(() => {
+        // Si falla la lectura (no la generación), no bloqueamos al trader —
+        // sigue al pedido normal en vez de dejarlo sin briefing.
+        requestBriefing();
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     if (!waiting || sending) return;
