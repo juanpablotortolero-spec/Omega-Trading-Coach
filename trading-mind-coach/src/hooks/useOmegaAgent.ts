@@ -14,6 +14,7 @@ import {
   getOperations,
   getOperationsInRange,
   getRecentMissionReflections,
+  getTodayPreSessionResponse,
   getTradingPlan,
   getVirtusAiEventsForWeek,
   getVirtusDelta,
@@ -25,6 +26,7 @@ import {
   type JournalEntryFull,
   type OperationItem,
   type OperationRecord,
+  type PreSessionResponse,
   type TradingPlan,
 } from '../lib/api';
 import { localIsoDate } from '../lib/calendar';
@@ -281,11 +283,36 @@ Reglas relevantes del Manual Operativo:
  * (de ahí sale el enfoque mental del día) — lo que Omega usa para un
  * briefing proactivo, sin journal de por medio todavía.
  */
+/**
+ * 100% local — cero costo de tokens. Convierte las variables discretas del
+ * check-in pre-sesión (pre_session_responses) en el puñado de líneas que
+ * Omega necesita para leer tu estado real de hoy, en vez de mandarle texto
+ * libre sin procesar o, como pasaba antes, nada en absoluto (el check-in se
+ * guardaba pero nunca se leía de vuelta para el briefing).
+ */
+function formatPreSessionCheckInBlock(checkIn: PreSessionResponse | null): string {
+  if (!checkIn) return 'Sin check-in pre-sesión registrado hoy todavía.';
+
+  const lines = [
+    `Estado de ánimo: ${checkIn.feeling}`,
+    `Motivo para operar hoy: ${checkIn.why_trading}`,
+    `Mentalidad: ${checkIn.mindset}`,
+  ];
+  if (checkIn.sleep_hours !== null) lines.push(`Horas de sueño: ${checkIn.sleep_hours}`);
+  if (checkIn.caffeine_mg !== null) lines.push(`Cafeína: ${checkIn.caffeine_mg}mg`);
+  if (checkIn.exercised !== null) lines.push(`Hizo ejercicio hoy: ${checkIn.exercised ? 'sí' : 'no'}`);
+  if (checkIn.intentions.length > 0) lines.push(`Intenciones para hoy: ${checkIn.intentions.join('; ')}`);
+  if (checkIn.life_stressors) lines.push(`Factores personales: ${checkIn.life_stressors}`);
+
+  return `Check-in pre-sesión de hoy:\n${lines.map((line) => `- ${line}`).join('\n')}`;
+}
+
 function buildBriefingDigest(
   plan: TradingPlan | null,
   virtusDelta7d: number,
   latestVerdict: AiSessionVerdict | null,
   todayHighImpactEvents: EconomicEvent[] | null,
+  checkIn: PreSessionResponse | null,
 ): string {
   const goalsLines = plan?.goals?.length ? plan.goals.map((g) => `- ${g.text}`).join('\n') : '(sin metas definidas)';
 
@@ -307,6 +334,8 @@ function buildBriefingDigest(
         : '(ninguna reconocida para hoy)';
 
   return `BRIEFING PRE-SESIÓN — reglas del Manual Operativo para hoy:
+
+${formatPreSessionCheckInBlock(checkIn)}
 
 Horario operativo: ${plan?.schedule_start || '—'} a ${plan?.schedule_end || '—'}
 Trades permitidos por sesión: ${plan?.max_trades_per_session || '(no definido)'}
@@ -486,14 +515,15 @@ export function useOmegaAgent() {
     setError(null);
 
     try {
-      const [plan, virtusDelta7d, latestVerdict, fundingAccounts] = await Promise.all([
+      const today = localIsoDate(new Date());
+      const [plan, virtusDelta7d, latestVerdict, fundingAccounts, checkIn] = await Promise.all([
         getTradingPlan(user.id),
         getVirtusDelta(user.id, 7),
         getLatestSessionVerdict(user.id),
         getAllFundingRiskContext(user.id),
+        getTodayPreSessionResponse(user.id, today),
       ]);
 
-      const today = localIsoDate(new Date());
       let todayHighImpactEvents: EconomicEvent[] | null = null;
       if (isWithinFetchedWeek(today)) {
         try {
@@ -506,7 +536,7 @@ export function useOmegaAgent() {
         }
       }
 
-      const digest = buildBriefingDigest(plan, virtusDelta7d, latestVerdict, todayHighImpactEvents);
+      const digest = buildBriefingDigest(plan, virtusDelta7d, latestVerdict, todayHighImpactEvents, checkIn);
       await invokeOmega([...messages, { role: 'user', content: 'Dame mi briefing pre-sesión de hoy.' }], {
         ataraxiaPct: null,
         sessionDigest: digest,

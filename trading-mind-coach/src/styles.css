@@ -6842,6 +6842,100 @@ h3.omega-section-title,
   align-self: flex-start;
 }
 
+/* Check-in pre-sesión — carrusel de 4 pasos, barra de progreso superior. */
+.check-in-quiz {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.check-in-progress-bar {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+.check-in-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(201, 166, 107, 0.6), var(--accent-gold));
+  box-shadow: 0 0 12px rgba(201, 166, 107, 0.5);
+  transition: width 0.4s ease;
+}
+
+.check-in-progress-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-top: -8px;
+}
+
+.check-in-step {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  animation: fade-in 0.25s ease;
+}
+
+.check-in-step h2 {
+  font-family: 'Cinzel', serif;
+  color: var(--accent-gold);
+  margin: 0;
+  font-size: 1.25rem;
+  text-wrap: balance;
+}
+
+.check-in-option-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.check-in-option-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 16px 18px;
+  text-align: left;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  color: var(--text-primary);
+  font-size: 0.92rem;
+  cursor: pointer;
+  transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.check-in-option-card:hover {
+  transform: translateY(-1px);
+  border-color: rgba(201, 166, 107, 0.4);
+}
+
+.check-in-option-card.active {
+  background: linear-gradient(135deg, rgba(201, 166, 107, 0.2), rgba(201, 166, 107, 0.06));
+  border-color: rgba(201, 166, 107, 0.7);
+  box-shadow: 0 0 0 1px rgba(201, 166, 107, 0.25), 0 12px 28px rgba(201, 166, 107, 0.14);
+}
+
+.check-in-option-radio {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid var(--border-subtle);
+  transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.check-in-option-card.active .check-in-option-radio {
+  border-color: var(--accent-gold);
+  background: var(--accent-gold);
+  box-shadow: 0 0 0 3px rgba(201, 166, 107, 0.2);
+}
+
 /* Modal "Quiz Post-Sesión" (Fase 3) — carrusel de una pregunta por pantalla. */
 .post-session-quiz-backdrop {
   position: fixed;
