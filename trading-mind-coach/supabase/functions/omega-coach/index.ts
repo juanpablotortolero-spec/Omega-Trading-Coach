@@ -222,7 +222,11 @@ type Effects = {
 };
 
 const MAX_TOOL_ITERATIONS = 5;
-const MODEL = Deno.env.get('OMEGA_MODEL') || 'claude-sonnet-5';
+// claude-3-5-haiku-20241022 (el default anterior) ya no existe en la API —
+// devuelve 404 en cada llamada. claude-haiku-4-5-20251001 es el sucesor
+// vigente en el mismo tier de costo (la razón por la que se eligió Haiku acá
+// en primer lugar, no Sonnet).
+const MODEL = Deno.env.get('OMEGA_MODEL') || 'claude-haiku-4-5-20251001';
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {

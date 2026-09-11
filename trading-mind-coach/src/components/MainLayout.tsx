@@ -1,12 +1,12 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { AtaraxiaRealtimeProvider, useAtaraxiaIntervention } from '../contexts/AtaraxiaRealtimeContext';
+import { AtaraxiaRealtimeProvider } from '../contexts/AtaraxiaRealtimeContext';
 import { useMailbox } from '../contexts/MailboxContext';
 import { MedalProvider } from '../contexts/MedalContext';
 import { OmegaProvider } from '../contexts/OmegaContext';
 import { useRefresh } from '../contexts/RefreshContext';
-import { getTodayBriefingAckStatus, getWeeklyKillSwitchStatus, touchPresence } from '../lib/api';
+import { getTodayBriefingAckStatus, touchPresence } from '../lib/api';
 import { localIsoDate } from '../lib/calendar';
 import { getNotificationPermission, requestNotificationPermission, type NotificationPermissionState } from '../lib/desktopNotifications';
 import { useDesktopNotifications } from '../hooks/useDesktopNotifications';
@@ -19,7 +19,6 @@ import OnboardingCarousel from './OnboardingCarousel';
 const navItems = [
   { label: 'Inicio', path: '/dashboard' },
   { label: 'Omega Coach', path: '/omega-coach' },
-  { label: 'Nuevo journal', path: '/journal/nuevo' },
   { label: 'Historial', path: '/historial' },
   { label: 'Estadísticas', path: '/estadisticas' },
   { label: 'Manual operativo', path: '/manual-operativo' },
@@ -63,14 +62,8 @@ function MainLayout() {
   const { user, signOut } = useAuth();
   const { version } = useRefresh();
   const { pendingRequests, mailboxCount } = useMailbox();
-  const { intervention: ataraxiaIntervention } = useAtaraxiaIntervention();
   const location = useLocation();
   const [navOpen, setNavOpen] = useState(false);
-  const [weeklyKillSwitchActive, setWeeklyKillSwitchActive] = useState(false);
-  // "Nuevo journal" se bloquea por la cuarentena semanal de siempre O por una
-  // intervención de Ataraxia en vivo (zona Miedo/Indisciplina) recién
-  // disparada por Realtime — cualquiera de las dos alcanza.
-  const journalLocked = weeklyKillSwitchActive || Boolean(ataraxiaIntervention);
   const [hasUnreadBriefing, setHasUnreadBriefing] = useState(false);
   const [notifPermission, setNotifPermission] = useState<NotificationPermissionState>('default');
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -111,19 +104,6 @@ function MainLayout() {
   useEffect(() => {
     setNavOpen(false);
   }, [location.pathname]);
-
-  useEffect(() => {
-    if (!user) return;
-    let cancelled = false;
-
-    getWeeklyKillSwitchStatus(user.id, new Date()).then((status) => {
-      if (!cancelled) setWeeklyKillSwitchActive(status.triggered !== null);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [user, version]);
 
   useEffect(() => {
     if (!user) return;
@@ -215,19 +195,10 @@ function MainLayout() {
                 key={item.label}
                 to={item.path}
                 className={({ isActive }) =>
-                  `nav-item ${isActive ? 'active' : ''} ${item.path === '/journal/nuevo' && journalLocked ? 'locked' : ''} ${item.path === '/omega-coach' && hasUnreadBriefing ? 'has-glow' : ''}`
+                  `nav-item ${isActive ? 'active' : ''} ${item.path === '/omega-coach' && hasUnreadBriefing ? 'has-glow' : ''}`
                 }
               >
                 {item.label}
-                {item.path === '/journal/nuevo' && journalLocked && (
-                  <span
-                    className="nav-item-lock"
-                    title={ataraxiaIntervention ? 'Intervención de Ataraxia activa' : 'Cuarentena activa esta semana'}
-                    aria-hidden="true"
-                  >
-                    🔒
-                  </span>
-                )}
                 {item.path === '/omega-coach' && hasUnreadBriefing && (
                   <span className="nav-notif-dot" title="Briefing pre-sesión sin leer" />
                 )}

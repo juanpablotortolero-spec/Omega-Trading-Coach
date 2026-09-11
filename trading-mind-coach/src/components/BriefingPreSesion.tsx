@@ -92,7 +92,21 @@ function BriefingPreSesion() {
         </>
       )}
 
-      {!waiting && !briefingText && error && <p className="omega-chat-error">{error}</p>}
+      {!waiting && !briefingText && error && (
+        <>
+          <p className="omega-chat-error">{error}</p>
+          <button
+            type="button"
+            className="ghost-btn btn-sm"
+            onClick={() => {
+              setWaiting(true);
+              requestBriefing();
+            }}
+          >
+            Reintentar
+          </button>
+        </>
+      )}
     </div>
   );
 }

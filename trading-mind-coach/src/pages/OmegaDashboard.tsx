@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import BriefingHistoryCalendar from '../components/BriefingHistoryCalendar';
-import BriefingPreSesion from '../components/BriefingPreSesion';
 import MissionCard from '../components/MissionCard';
 import MonthlyCloseModal from '../components/MonthlyCloseModal';
 import OmegaDashboardInfoModal from '../components/OmegaDashboardInfoModal';
@@ -14,13 +13,11 @@ import { useOmega } from '../contexts/OmegaContext';
 import { useRefresh } from '../contexts/RefreshContext';
 import type { HeadCoachAudit, MonthlyCloseResult, WeeklyRecapResult } from '../hooks/useOmegaAgent';
 import {
-  acknowledgeBriefing,
   acknowledgeOmegaAudit,
   getAiMissions,
   getFundingAccountsWithTrend,
   getJournalEntryByDate,
   getLatestGoalProgressReasons,
-  getTodayBriefingAckStatus,
   getTodayOmegaAudit,
   getTodayVirtusEventReasons,
   getTradingPlan,
@@ -63,7 +60,7 @@ function WaitingForSealPanel() {
 
 function OmegaDashboard() {
   const { user } = useAuth();
-  const { sending, requestHeadCoachAudit, requestWeeklyRecap, requestMonthlyClose, evaluateSession } = useOmega();
+  const { requestHeadCoachAudit, requestWeeklyRecap, requestMonthlyClose, evaluateSession } = useOmega();
   const { version, bump } = useRefresh();
   const todayIso = localIsoDate(new Date());
 
@@ -83,12 +80,6 @@ function OmegaDashboard() {
   const [monthlyOpen, setMonthlyOpen] = useState(false);
   const [monthlyLoading, setMonthlyLoading] = useState(false);
   const [monthlyError, setMonthlyError] = useState<string | null>(null);
-
-  const [briefingAck, setBriefingAck] = useState<{ exists: boolean; acknowledged: boolean }>({
-    exists: false,
-    acknowledged: false,
-  });
-  const [acknowledging, setAcknowledging] = useState(false);
 
   const [manualAuditing, setManualAuditing] = useState(false);
   const [manualAuditError, setManualAuditError] = useState<string | null>(null);
@@ -210,39 +201,6 @@ function OmegaDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, version]);
 
-  // Se refresca cada vez que un pedido a Omega termina (generar el briefing
-  // incluido) — es la única forma de saber, sin acoplar este componente a
-  // BriefingPreSesion, que la fila en omega_briefings ya existe. La primera
-  // vez que detecta un briefing sin leer, bump() para que el poll de
-  // MainLayout (atado a `version`, no a este efecto) reaccione y encienda el
-  // glow del sidebar ya mismo, sin esperar a la próxima navegación —
-  // guardado en un ref, no en cada corrida, para no disparar refetch en
-  // cascada por toda la app cada vez que este efecto vuelve a correr.
-  const unreadBriefingNotifiedRef = useRef(false);
-
-  useEffect(() => {
-    if (!user || sending) return;
-    let cancelled = false;
-
-    getTodayBriefingAckStatus(user.id, todayIso).then((status) => {
-      if (cancelled) return;
-      setBriefingAck(status);
-      if (status.exists && !status.acknowledged) {
-        if (!unreadBriefingNotifiedRef.current) {
-          unreadBriefingNotifiedRef.current = true;
-          bump();
-        }
-      } else {
-        unreadBriefingNotifiedRef.current = false;
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, sending]);
-
   const handleGenerateRecap = async (weekMonday: Date) => {
     if (generatingWeekKey) return;
     setGeneratingWeekKey(localIsoDate(weekMonday));
@@ -295,20 +253,6 @@ function OmegaDashboard() {
       setManualAuditing(false);
     }
     evaluateSession(todayIso).catch(() => {});
-  };
-
-  const handleAcknowledgeBriefing = async () => {
-    if (!user || acknowledging) return;
-    setAcknowledging(true);
-    try {
-      await acknowledgeBriefing(user.id, todayIso);
-      setBriefingAck((current) => ({ ...current, acknowledged: true }));
-      bump();
-    } catch {
-      // Silencioso: si falla, el botón sigue visible y el trader puede reintentar.
-    } finally {
-      setAcknowledging(false);
-    }
   };
 
   const strengths = audit ? formatProfileItems(audit.strengths) : [];
@@ -371,16 +315,10 @@ function OmegaDashboard() {
       {activeTab === 'briefing' && (
         <div className="omega-tab-panel">
           <h3 className="omega-briefing-title">Briefing Pre-Sesión</h3>
-          <BriefingPreSesion />
-
-          {briefingAck.exists && !briefingAck.acknowledged && (
-            <button type="button" className="primary-btn btn-sm" onClick={handleAcknowledgeBriefing} disabled={acknowledging}>
-              {acknowledging ? 'Guardando…' : 'He leído el briefing y acepto el plan de acción de hoy'}
-            </button>
-          )}
-          {briefingAck.exists && briefingAck.acknowledged && (
-            <p className="hint-text">✓ Plan de acción de hoy aceptado.</p>
-          )}
+          <p className="hint-text">
+            El briefing de hoy ahora se lee y se acepta al arrancar tu sesión, desde "Nueva Sesión" en Inicio — acá
+            queda el historial y las auditorías semanales/mensuales.
+          </p>
 
           <section className="panel plan-section omega-briefing-history">
             <p className="hint-text">

@@ -25,6 +25,7 @@ import {
   getRecentEntrySealStatus,
   getRecentShareAgoraOrder,
   getRecentShareFriendOrder,
+  getTodayBriefingAckStatus,
   getTradingPlan,
   getVirtusTotal,
   getWeeklyKillSwitchStatus,
@@ -77,6 +78,7 @@ import AtaraxiaBar from '../components/AtaraxiaBar';
 import SessionSealedModal from '../components/SessionSealedModal';
 import JournalInfoModal from '../components/JournalInfoModal';
 import QuarantineScreen from '../components/QuarantineScreen';
+import NewSessionGateScreen from '../components/NewSessionGateScreen';
 
 function PhaseLocked({ title, message }: { title: string; message: string }) {
   return (
@@ -226,6 +228,7 @@ function JournalEntry() {
   const [fundingAccounts, setFundingAccounts] = useState<FundingAccount[]>([]);
   const [selectedFundingAccountIds, setSelectedFundingAccountIds] = useState<string[]>([]);
   const [killSwitchStatus, setKillSwitchStatus] = useState<WeeklyKillSwitchStatus | null>(null);
+  const [briefingAckToday, setBriefingAckToday] = useState(true);
   const dropZoneRef = useRef<HTMLDivElement>(null);
   const {
     evaluateSession,
@@ -269,6 +272,7 @@ function JournalEntry() {
           allOps,
           fundingAccountsList,
           killSwitch,
+          briefingAck,
         ] = await Promise.all([
           getJournalEntryByDate(user.id, targetDate),
           getTradingPlan(user.id),
@@ -282,10 +286,12 @@ function JournalEntry() {
           getAllOperations(user.id),
           getFundingAccounts(user.id),
           targetDate === todayIso() ? getWeeklyKillSwitchStatus(user.id, new Date()) : Promise.resolve(null),
+          targetDate === todayIso() ? getTodayBriefingAckStatus(user.id, targetDate) : Promise.resolve(null),
         ]);
 
         if (cancelled) return;
         setKillSwitchStatus(killSwitch);
+        setBriefingAckToday(briefingAck ? briefingAck.acknowledged : true);
 
         const resolvedEntry = existing ?? emptyJournalEntry(targetDate);
         setPlan(tradingPlan ?? emptyTradingPlan);
@@ -820,6 +826,13 @@ function JournalEntry() {
 
   if (targetDate === todayIso() && killSwitchStatus?.triggered) {
     return <QuarantineScreen status={killSwitchStatus} />;
+  }
+
+  // Fase 2: bloquea abrir un journal de HOY nuevo hasta completar el check-in
+  // pre-sesión + aceptar el Briefing — solo mientras Fase 1 sigue sin sellar,
+  // así no bloquea retroactivamente una sesión ya en curso.
+  if (targetDate === todayIso() && !phase1Sealed && !briefingAckToday) {
+    return <NewSessionGateScreen />;
   }
 
   return (

@@ -3227,6 +3227,47 @@ export async function getBriefingByDate(userId: string, date: string): Promise<s
   return data?.content ?? null;
 }
 
+// ---------------------------------------------------------------------------
+// Check-in pre-sesión ("Nueva Sesión") — Fase 2
+// ---------------------------------------------------------------------------
+
+export type PreSessionResponseInput = {
+  feeling: string;
+  mindset: string;
+  why_trading: string;
+  sleep_hours: number | null;
+  caffeine_mg: number | null;
+  exercised: boolean | null;
+  intentions: string[];
+  life_stressors: string | null;
+};
+
+export type PreSessionResponse = PreSessionResponseInput & { created_at: string };
+
+/** pre_session_responses no tiene columna de fecha propia — "hoy" se filtra por rango de created_at en hora local. */
+export async function getTodayPreSessionResponse(userId: string, todayIso: string): Promise<PreSessionResponse | null> {
+  const startOfDay = new Date(`${todayIso}T00:00:00`);
+  const endOfDay = new Date(`${todayIso}T23:59:59.999`);
+
+  const { data, error } = await supabase
+    .from('pre_session_responses')
+    .select('feeling, mindset, why_trading, sleep_hours, caffeine_mg, exercised, intentions, life_stressors, created_at')
+    .eq('user_id', userId)
+    .gte('created_at', startOfDay.toISOString())
+    .lte('created_at', endOfDay.toISOString())
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data as PreSessionResponse | null;
+}
+
+export async function savePreSessionResponse(userId: string, input: PreSessionResponseInput): Promise<void> {
+  const { error } = await supabase.from('pre_session_responses').insert({ user_id: userId, ...input });
+  if (error) throw error;
+}
+
 export type VirtusEventReason = { reason: string; points: number };
 
 /**

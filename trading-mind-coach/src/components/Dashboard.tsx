@@ -23,6 +23,8 @@ import {
   getOperationsInRange,
   getStatsPreview,
   getStreak,
+  getTodayBriefingAckStatus,
+  getTodayPreSessionResponse,
   getTodaySessionVirtusDelta,
   getTodayStatus,
   getTradingPlan,
@@ -46,6 +48,7 @@ import { computeDisciplineTimeline, type DisciplineOperationInput } from '../lib
 import { isOnline } from '../lib/presence';
 import { currentStage } from '../lib/virtus';
 import AtaraxiaBar from './AtaraxiaBar';
+import PreSessionCheckInModal from './PreSessionCheckInModal';
 import ProgressInfoModal from './ProgressInfoModal';
 import VirtusRankMapModal from './VirtusRankMapModal';
 import UserEmblem from './UserEmblem';
@@ -124,6 +127,11 @@ function Dashboard() {
   const { lastEffects: omegaLastEffects } = useOmega();
   const { intervention: ataraxiaIntervention } = useAtaraxiaIntervention();
   const { mailboxCount } = useMailbox();
+
+  const [preSessionDone, setPreSessionDone] = useState(false);
+  const [briefingAccepted, setBriefingAccepted] = useState(false);
+  const [checkInModalOpen, setCheckInModalOpen] = useState(false);
+  const [checkInModalStep, setCheckInModalStep] = useState<'quiz' | 'briefing'>('quiz');
 
   const today = new Date();
   const todayIso = localIsoDate(today);
@@ -270,6 +278,24 @@ function Dashboard() {
   }, [user, version]);
 
   useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+
+    Promise.all([getTodayPreSessionResponse(user.id, todayIso), getTodayBriefingAckStatus(user.id, todayIso)]).then(
+      ([preSession, ack]) => {
+        if (cancelled) return;
+        setPreSessionDone(Boolean(preSession));
+        setBriefingAccepted(ack.acknowledged);
+      },
+    );
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, version]);
+
+  useEffect(() => {
     if (
       omegaLastEffects &&
       (omegaLastEffects.goalUpdates.length > 0 ||
@@ -331,6 +357,37 @@ function Dashboard() {
                 Editar →
               </button>
             </>
+          ) : !preSessionDone ? (
+            <button
+              type="button"
+              className="new-session-btn"
+              onClick={() => {
+                setCheckInModalStep('quiz');
+                setCheckInModalOpen(true);
+              }}
+              disabled={Boolean(ataraxiaIntervention)}
+              title={ataraxiaIntervention ? 'Bloqueado por la intervención de Ataraxia activa' : undefined}
+            >
+              <span className="new-session-btn-glyph">Ω</span>
+              <span className="new-session-btn-label">Nueva Sesión</span>
+            </button>
+          ) : !briefingAccepted ? (
+            <>
+              <div className="status-icon pending">○</div>
+              <div className="session-status-copy">
+                <strong>Check-in listo — falta tu Briefing</strong>
+                <p className="hint-text">Leé y aceptá el plan de acción de hoy para destrabar tu journal</p>
+              </div>
+              <button
+                className="primary-btn btn-sm"
+                onClick={() => {
+                  setCheckInModalStep('briefing');
+                  setCheckInModalOpen(true);
+                }}
+              >
+                Continuar →
+              </button>
+            </>
           ) : (
             <>
               <div className="status-icon pending">○</div>
@@ -349,6 +406,10 @@ function Dashboard() {
             </>
           )}
         </section>
+
+        {checkInModalOpen && (
+          <PreSessionCheckInModal initialStep={checkInModalStep} onClose={() => setCheckInModalOpen(false)} />
+        )}
 
         <section className="panel plan-section">
           <div className="section-header">
