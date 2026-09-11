@@ -33,12 +33,13 @@ import {
   logCoreMissionCompletions,
   logOperatorAndPsychMissionCompletions,
   postMarketQuizQuestions,
-  psychologyEmotions,
+  postSessionReflectionQuestions,
   removeScreenshot,
   replaceJournalFundingAccounts,
   replaceOperations,
   replaceSetupMissionCompletions,
   replaceVirtusEvents,
+  savePostSessionResponse,
   shareJournalEntry,
   shareJournalEntryToAgora,
   uploadScreenshot,
@@ -51,6 +52,7 @@ import {
   type JournalEntryFull,
   type JournalTemplateSections,
   type OperationItem,
+  type PostSessionExtra,
   type TradingPlan,
   type WeeklyKillSwitchStatus,
 } from '../lib/api';
@@ -73,12 +75,12 @@ import {
   type DisciplineOperationInput,
 } from '../lib/disciplineScore';
 import { downloadJournalEntry } from '../lib/journalExport';
-import QuizQuestionRow from '../components/QuizQuestionRow';
 import AtaraxiaBar from '../components/AtaraxiaBar';
 import SessionSealedModal from '../components/SessionSealedModal';
 import JournalInfoModal from '../components/JournalInfoModal';
 import QuarantineScreen from '../components/QuarantineScreen';
 import NewSessionGateScreen from '../components/NewSessionGateScreen';
+import PostSessionQuizModal from '../components/PostSessionQuizModal';
 
 function PhaseLocked({ title, message }: { title: string; message: string }) {
   return (
@@ -229,6 +231,7 @@ function JournalEntry() {
   const [selectedFundingAccountIds, setSelectedFundingAccountIds] = useState<string[]>([]);
   const [killSwitchStatus, setKillSwitchStatus] = useState<WeeklyKillSwitchStatus | null>(null);
   const [briefingAckToday, setBriefingAckToday] = useState(true);
+  const [quizModalOpen, setQuizModalOpen] = useState(false);
   const dropZoneRef = useRef<HTMLDivElement>(null);
   const {
     evaluateSession,
@@ -430,6 +433,16 @@ function JournalEntry() {
         : [...current.custom_fields.psychology_emotions, emotion];
       return { ...current, custom_fields: { ...current.custom_fields, psychology_emotions: next } };
     });
+  };
+
+  const setReflectionAnswer = (key: keyof PostSessionExtra, value: string) => {
+    setEntry((current) => ({
+      ...current,
+      custom_fields: {
+        ...current.custom_fields,
+        post_session_extra: { ...current.custom_fields.post_session_extra, [key]: value },
+      },
+    }));
   };
 
   const handleDownload = async () => {
@@ -715,6 +728,17 @@ function JournalEntry() {
         ataraxiaScore: disciplineResult.score,
       });
       await replaceSetupMissionCompletions(user.id, entryToSave.entry_date, operations, plan.setups);
+      // Espejo estructurado del Quiz Post-Sesión (ver savePostSessionResponse) —
+      // custom_fields.quiz/psychology_emotions/quiz_extra_notes/post_session_extra
+      // ya sigue siendo la fuente real de Ataraxia/Virtus, sin cambios.
+      await savePostSessionResponse(
+        user.id,
+        entryToSave.custom_fields.quiz,
+        entryToSave.custom_fields.psychology_emotions,
+        entryToSave.custom_fields.quiz_extra_notes,
+        entryToSave.custom_fields.post_session_extra,
+        disciplineResult.score,
+      );
 
       setEntry((current) => ({ ...current, id: entryId, custom_fields: entryToSave.custom_fields }));
       setSavedAt(Date.now());
@@ -816,9 +840,10 @@ function JournalEntry() {
     (entry.custom_fields.took_trade === true &&
       operations.length > 0 &&
       operations.every((op) => op.screenshots.length > 0));
-  const phase3Valid =
+  const postSessionQuizComplete =
     postMarketQuizQuestions.every((question) => entry.custom_fields.quiz[question.key]?.answer !== null) &&
-    Boolean(entry.post_market_analysis && entry.post_market_analysis.trim());
+    postSessionReflectionQuestions.every((question) => entry.custom_fields.post_session_extra[question.key] !== null);
+  const phase3Valid = postSessionQuizComplete && Boolean(entry.post_market_analysis && entry.post_market_analysis.trim());
 
   if (loading) {
     return <div className="skeleton skeleton-table" />;
@@ -1643,60 +1668,43 @@ function JournalEntry() {
             rows={4}
           />
         </section>
+        </fieldset>
 
         <section className="panel plan-section je-section">
-          <h3>Quiz Post-Mercado</h3>
+          <h3>Quiz Post-Sesión</h3>
           <p className="hint-text">
-            Audita tu ejecución del día. Con el tiempo, tus respuestas semanales ayudan a detectar patrones
-            que se repiten.
+            Audita tu ejecución y tu psicología del día, pregunta por pregunta. Con el tiempo, tus respuestas
+            ayudan a detectar patrones que se repiten.
           </p>
+          <button
+            type="button"
+            className="new-session-btn"
+            onClick={() => setQuizModalOpen(true)}
+          >
+            <span className="new-session-btn-glyph">Ω</span>
+            <span className="new-session-btn-label">
+              {fullySealed ? 'Ver Quiz Post-Sesión' : postSessionQuizComplete ? 'Editar Quiz Post-Sesión ✓' : 'Quiz Post-Sesión'}
+            </span>
+          </button>
+          {!postSessionQuizComplete && !fullySealed && (
+            <p className="hint-text">Obligatorio completarlo para poder sellar el registro.</p>
+          )}
 
-          {postMarketQuizQuestions.map((question) => (
-            <QuizQuestionRow
-              key={question.key}
-              label={question.label}
-              options={question.options}
-              value={entry.custom_fields.quiz[question.key] ?? { answer: null, note: '' }}
-              onChange={(next) =>
-                setEntry((current) => ({
-                  ...current,
-                  custom_fields: {
-                    ...current.custom_fields,
-                    quiz: { ...current.custom_fields.quiz, [question.key]: next },
-                  },
-                }))
-              }
+          {quizModalOpen && (
+            <PostSessionQuizModal
+              quiz={entry.custom_fields.quiz}
+              onQuizChange={(next) => setEntry((current) => ({ ...current, custom_fields: { ...current.custom_fields, quiz: next } }))}
+              emotions={entry.custom_fields.psychology_emotions}
+              onToggleEmotion={toggleEmotion}
+              extraNotes={entry.custom_fields.quiz_extra_notes}
+              onExtraNotesChange={(value) => setCustomField('quiz_extra_notes', value)}
+              reflection={entry.custom_fields.post_session_extra}
+              onReflectionChange={setReflectionAnswer}
+              ataraxiaScore={disciplineResult.score}
+              readOnly={fullySealed}
+              onClose={() => setQuizModalOpen(false)}
             />
-          ))}
-
-          <div className="pill-field">
-            <span className="eyebrow">Emoción predominante/s</span>
-            <div className="pill-row">
-              {psychologyEmotions.map((emotion) => (
-                <button
-                  key={emotion}
-                  type="button"
-                  className={`pill-btn gold small ${
-                    entry.custom_fields.psychology_emotions.includes(emotion) ? 'active' : ''
-                  }`}
-                  onClick={() => toggleEmotion(emotion)}
-                >
-                  {emotion}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <label className="auth-field">
-            <span className="eyebrow">Algo más que quieras agregar</span>
-            <textarea
-              onInput={autoGrow}
-              value={entry.custom_fields.quiz_extra_notes}
-              onChange={(event) => setCustomField('quiz_extra_notes', event.target.value)}
-              placeholder="Cualquier otra cosa que quieras recordar de hoy…"
-              rows={3}
-            />
-          </label>
+          )}
         </section>
 
         <section className="panel plan-section je-section">
@@ -1736,7 +1744,6 @@ function JournalEntry() {
             </div>
           )}
         </section>
-        </fieldset>
 
         {fullySealed && (
           <p className="phase-sealed-note">

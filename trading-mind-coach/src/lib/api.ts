@@ -397,6 +397,114 @@ export const psychologyEmotions: string[] = [
   'Incertidumbre',
 ];
 
+/**
+ * Fase 3 — 6 preguntas de reflexión post-sesión (además de las 7 del quiz de
+ * arriba). Selección única, sin nota — a diferencia de postMarketQuizQuestions,
+ * estas viven en custom_fields.post_session_extra (ver PostSessionExtra) y se
+ * espejan en post_session_responses al sellar (ver savePostSessionResponse).
+ * La última ("next_move") se presenta como tarjeta flotante de acción en el
+ * modal, no como fila más — mismo dato, distinto tratamiento visual.
+ */
+export type PostSessionReflectionQuestion = {
+  key: keyof PostSessionExtra;
+  label: string;
+  options: string[];
+};
+
+export const postSessionReflectionQuestions: PostSessionReflectionQuestion[] = [
+  {
+    key: 'decision_making',
+    label: '¿Cómo te sentís respecto a tu toma de decisiones en esta sesión?',
+    options: [
+      'Fuera de control — rompí reglas o operé por emoción',
+      'Mayormente encaminado, con algunas dudas',
+      'En tilt — quiero seguir operando para recuperarme',
+      'Disciplinado — seguí mis reglas',
+    ],
+  },
+  {
+    key: 'process_consistency',
+    label: '¿Tus trades buenos y malos se ejecutaron con el mismo proceso?',
+    options: [
+      'Mayormente — los malos tuvieron ligeras desviaciones',
+      'Difícil de decir — no lo estaba siguiendo de cerca',
+      'No — los malos fueron impulsivos',
+      'Sí — mismo proceso, distintos resultados',
+    ],
+  },
+  {
+    key: 'hardest_moment',
+    label: 'El momento más difícil de hoy fue…',
+    options: [
+      'Evitar el revenge trading después de una pérdida',
+      'Ver correr un trade que me perdí, sin mí',
+      'Sostener un drawdown sin reaccionar',
+      'Ninguno — sesión fluida',
+    ],
+  },
+  {
+    key: 'mental_energy',
+    label: 'Tu energía mental ahora mismo, comparada con el inicio de la sesión…',
+    options: [
+      'Hiperactivo — la adrenalina sigue corriendo',
+      'Más o menos igual — buen ritmo',
+      'Más alta — me fui enfocando a medida que avanzaba',
+      'Drenado — esto me costó mucha energía',
+    ],
+  },
+  {
+    key: 'next_morning_plan',
+    label: 'Mañana antes de que abra el mercado, lo más probable es que…',
+    options: [
+      'Revise los trades de hoy para evaluar la calidad de ejecución',
+      'Planee cómo recuperar las pérdidas de hoy',
+      'Empiece fresco — la sesión pasada ya terminó',
+      'Revise los movimientos overnight de mis activos',
+    ],
+  },
+  {
+    key: 'next_move',
+    label: '¿Cuál es tu próximo movimiento?',
+    options: [
+      'Buscar otro trade rápido',
+      'Esperar el próximo setup limpio',
+      'Podría aumentar el apalancamiento en el próximo trade',
+      'Alejarme y asegurar la ganancia',
+    ],
+  },
+];
+
+export type PostSessionExtra = {
+  decision_making: string | null;
+  process_consistency: string | null;
+  hardest_moment: string | null;
+  mental_energy: string | null;
+  next_morning_plan: string | null;
+  next_move: string | null;
+};
+
+export function emptyPostSessionExtra(): PostSessionExtra {
+  return {
+    decision_making: null,
+    process_consistency: null,
+    hardest_moment: null,
+    mental_energy: null,
+    next_morning_plan: null,
+    next_move: null,
+  };
+}
+
+function normalizePostSessionExtra(raw: unknown): PostSessionExtra {
+  const empty = emptyPostSessionExtra();
+  if (!raw || typeof raw !== 'object') return empty;
+  const source = raw as Partial<PostSessionExtra>;
+  const result = { ...empty };
+  (Object.keys(empty) as (keyof PostSessionExtra)[]).forEach((key) => {
+    result[key] = typeof source[key] === 'string' ? (source[key] as string) : null;
+  });
+  return result;
+}
+
 export type QuizAnswer = { answer: string | null; note: string };
 export type QuizState = Record<string, QuizAnswer>;
 
@@ -440,6 +548,7 @@ export type JournalEntryFull = {
     quiz: QuizState;
     quiz_extra_notes: string;
     psychology_emotions: string[];
+    post_session_extra: PostSessionExtra;
     had_macro_news: boolean | null;
     macro_news: MacroNewsRecord[] | null;
     /** Sellado por fases — ver computeVirtusEventsV2 y JournalEntry.tsx. Una vez sellada, esa fase queda inmutable. */
@@ -472,6 +581,7 @@ export function emptyJournalEntry(date: string): JournalEntryFull {
       quiz: emptyQuizState(),
       quiz_extra_notes: '',
       psychology_emotions: [],
+      post_session_extra: emptyPostSessionExtra(),
       had_macro_news: null,
       macro_news: null,
       phase1_sealed_at: null,
@@ -522,6 +632,7 @@ export async function getJournalEntryByDate(userId: string, date: string): Promi
       psychology_emotions: Array.isArray(data.custom_fields?.psychology_emotions)
         ? (data.custom_fields.psychology_emotions as string[])
         : [],
+      post_session_extra: normalizePostSessionExtra(data.custom_fields?.post_session_extra),
       had_macro_news: data.custom_fields?.had_macro_news ?? null,
       macro_news: data.custom_fields?.macro_news ?? null,
       phase1_sealed_at: data.custom_fields?.phase1_sealed_at ?? null,
@@ -2764,6 +2875,7 @@ export async function getJournalEntryById(entryId: string): Promise<(JournalEntr
       psychology_emotions: Array.isArray(data.custom_fields?.psychology_emotions)
         ? (data.custom_fields.psychology_emotions as string[])
         : [],
+      post_session_extra: normalizePostSessionExtra(data.custom_fields?.post_session_extra),
       had_macro_news: data.custom_fields?.had_macro_news ?? null,
       macro_news: data.custom_fields?.macro_news ?? null,
       phase1_sealed_at: data.custom_fields?.phase1_sealed_at ?? null,
@@ -3265,6 +3377,61 @@ export async function getTodayPreSessionResponse(userId: string, todayIso: strin
 
 export async function savePreSessionResponse(userId: string, input: PreSessionResponseInput): Promise<void> {
   const { error } = await supabase.from('pre_session_responses').insert({ user_id: userId, ...input });
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Quiz post-sesión ("Quiz Post-Sesión") — Fase 3
+// ---------------------------------------------------------------------------
+
+function quizAnswerToBoolean(answer: string | null | undefined): boolean | null {
+  if (answer === 'Sí') return true;
+  if (answer === 'No') return false;
+  return null;
+}
+
+/**
+ * custom_fields.quiz/psychology_emotions/quiz_extra_notes/post_session_extra
+ * siguen siendo la fuente de verdad real (de ahí sale Ataraxia vía
+ * computeDisciplineScore, sin cambios) — esto solo espeja esas mismas
+ * respuestas, ya convertidas a los tipos reales de la tabla, en
+ * post_session_responses al sellar. Se llama una única vez, al sello final
+ * (inmutable, como el resto del journal).
+ */
+export async function savePostSessionResponse(
+  userId: string,
+  quiz: QuizState,
+  emotions: string[],
+  extraNotes: string,
+  reflection: PostSessionExtra,
+  ataraxiaScore: number | null,
+): Promise<void> {
+  const { error } = await supabase.from('post_session_responses').insert({
+    user_id: userId,
+    bias_correct: quizAnswerToBoolean(quiz.bias_correct?.answer),
+    notes_bias: quiz.bias_correct?.note || null,
+    dol_swept: quizAnswerToBoolean(quiz.dol_liquidated?.answer),
+    notes_dol: quiz.dol_liquidated?.note || null,
+    price_reading: quiz.price_reading?.answer ? Number(quiz.price_reading.answer) : null,
+    notes_price: quiz.price_reading?.note || null,
+    narrative_followed: quizAnswerToBoolean(quiz.narrative_respected?.answer),
+    notes_narrative: quiz.narrative_respected?.note || null,
+    setup_compliant: quiz.setup_params?.answer ?? null,
+    notes_setup: quiz.setup_params?.note || null,
+    risk_respected: quiz.risk_respected?.answer ?? null,
+    notes_risk: quiz.risk_respected?.note || null,
+    psychology_rating: quiz.psychology?.answer ?? null,
+    notes_psychology: quiz.psychology?.note || null,
+    predominant_emotions: emotions,
+    additional_comments: extraNotes || null,
+    ataraxia_score: ataraxiaScore,
+    decision_making: reflection.decision_making,
+    process_consistency: reflection.process_consistency,
+    hardest_moment: reflection.hardest_moment,
+    mental_energy: reflection.mental_energy,
+    next_morning_plan: reflection.next_morning_plan,
+    next_move: reflection.next_move,
+  });
   if (error) throw error;
 }
 

@@ -7,11 +7,13 @@ function QuizQuestionRow({
   options,
   value,
   onChange,
+  disabled,
 }: {
   label: string;
   options: string[];
   value: QuizAnswer;
   onChange: (next: QuizAnswer) => void;
+  disabled?: boolean;
 }) {
   const [noteOpen, setNoteOpen] = useState(Boolean(value.note));
 
@@ -25,6 +27,7 @@ function QuizQuestionRow({
             type="button"
             className={`pill-btn gold small ${value.answer === option ? 'active' : ''}`}
             onClick={() => onChange({ ...value, answer: option })}
+            disabled={disabled}
           >
             {option}
           </button>
@@ -38,9 +41,10 @@ function QuizQuestionRow({
           onChange={(event) => onChange({ ...value, note: event.target.value })}
           placeholder="Nota opcional…"
           rows={2}
+          disabled={disabled}
         />
       ) : (
-        <button type="button" className="quiz-note-toggle" onClick={() => setNoteOpen(true)}>
+        <button type="button" className="quiz-note-toggle" onClick={() => setNoteOpen(true)} disabled={disabled}>
           + Agregar nota
         </button>
       )}
