@@ -2687,6 +2687,48 @@ textarea {
   background: linear-gradient(90deg, var(--accent-bronze), var(--accent-gold));
 }
 
+/* Diario de progreso por meta (Manual Operativo) — notas cortas y aisladas del trader. */
+.goal-notes-diary {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.goal-notes-diary-body {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+}
+
+.goal-notes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.goal-notes-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.85rem;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.goal-notes-list li:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
 .gauge-fill.danger {
   background: linear-gradient(90deg, var(--accent-gold), var(--trade-bearish));
 }
@@ -6722,7 +6764,6 @@ h3.omega-section-title,
 .pre-session-panel {
   width: min(640px, 100%);
   max-height: 92vh;
-  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -6731,6 +6772,21 @@ h3.omega-section-title,
   border: 1px solid rgba(201, 166, 107, 0.3);
   border-radius: 22px;
   box-shadow: var(--shadow-soft), 0 0 60px rgba(201, 166, 107, 0.08);
+  overflow: hidden;
+}
+
+/* El contenido variable (quiz o briefing) es lo único que scrollea — el
+   header y el footer con el botón de acción quedan siempre fijos y
+   visibles, para que un briefing largo nunca "trabe" al trader sin poder
+   aceptar ni salir. */
+.pre-session-scroll-area {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding-right: 4px;
 }
 
 .pre-session-eyebrow-row {
@@ -6829,7 +6885,9 @@ h3.omega-section-title,
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: 4px;
+  flex-shrink: 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-subtle);
 }
 
 .pre-session-briefing-step {

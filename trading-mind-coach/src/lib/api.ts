@@ -1,5 +1,7 @@
 import { localIsoDate, summarizeOperationsByDate } from './calendar';
 import { getMedalProgress, MEDAL_TIER_XP, type MedalTierName } from './medals';
+import { CHECK_COPY } from './missionCatalog';
+import type { CheckId } from './disciplineScore';
 import { computeDangerPct } from './risk';
 import { supabase } from './supabaseClient';
 import { currentStage, rankPenaltyMultiplier } from './virtus';
@@ -8,28 +10,24 @@ export async function getVirtusTotal(userId: string): Promise<number> {
   const [
     { data: events, error: eventsError },
     { data: weekly, error: weeklyError },
-    { data: aiEvents, error: aiEventsError },
     { data: medals, error: medalsError },
   ] = await Promise.all([
     supabase.from('virtus_events').select('points').eq('user_id', userId),
     supabase.from('weekly_missions').select('points').eq('user_id', userId),
-    supabase.from('virtus_ai_events').select('points').eq('user_id', userId),
     supabase.from('medal_unlocks').select('points').eq('user_id', userId),
   ]);
 
   if (eventsError) throw eventsError;
   if (weeklyError) throw weeklyError;
-  // virtus_ai_events y medal_unlocks son tablas nuevas — toleran no existir
-  // todavía (Postgres "undefined_table", code 42P01) así esta función sigue
-  // funcionando para cuentas que no corrieron esa migración todavía.
-  if (aiEventsError && aiEventsError.code !== '42P01') throw aiEventsError;
+  // medal_unlocks es una tabla nueva — tolera no existir todavía (Postgres
+  // "undefined_table", code 42P01) así esta función sigue funcionando para
+  // cuentas que no corrieron esa migración todavía.
   if (medalsError && medalsError.code !== '42P01') throw medalsError;
 
   const eventsSum = (events ?? []).reduce((sum, row) => sum + row.points, 0);
   const weeklySum = (weekly ?? []).reduce((sum, row) => sum + row.points, 0);
-  const aiEventsSum = (aiEvents ?? []).reduce((sum, row) => sum + row.points, 0);
   const medalsSum = (medals ?? []).reduce((sum, row) => sum + row.points, 0);
-  return eventsSum + weeklySum + aiEventsSum + medalsSum;
+  return eventsSum + weeklySum + medalsSum;
 }
 
 export async function getVirtusDelta(userId: string, sinceDays = 7): Promise<number> {
@@ -129,7 +127,6 @@ export type ScenarioItem = {
 export type GoalItem = {
   id: string;
   text: string;
-  type: 'manual' | 'automatic';
   reward: string;
   progressPct: number;
 };
@@ -222,7 +219,6 @@ export async function getTradingPlan(userId: string): Promise<TradingPlan | null
     goals: ((data.goals ?? []) as Partial<GoalItem>[]).map((item) => ({
       id: item.id ?? crypto.randomUUID(),
       text: item.text ?? '',
-      type: item.type ?? 'manual',
       reward: item.reward ?? '',
       progressPct: item.progressPct ?? 0,
     })),
@@ -2016,20 +2012,6 @@ export async function replaceSetupMissionCompletions(
   if (insertError) throw insertError;
 }
 
-export type PsychGrowthCategory = 'correccion' | 'fortaleza';
-
-export async function getPsychGrowthCounts(userId: string): Promise<Record<PsychGrowthCategory, number>> {
-  const { data, error } = await supabase.from('psychological_growth_events').select('category').eq('user_id', userId);
-  if (error) throw error;
-
-  const counts: Record<PsychGrowthCategory, number> = { correccion: 0, fortaleza: 0 };
-  (data ?? []).forEach((row) => {
-    const category = row.category as PsychGrowthCategory;
-    counts[category] = (counts[category] ?? 0) + 1;
-  });
-  return counts;
-}
-
 // ---------------------------------------------------------------------------
 // Misiones semanales — Módulo 5A
 // ---------------------------------------------------------------------------
@@ -2211,10 +2193,9 @@ async function awardMedalUnlockIfNew(
  * mostrar la notificación de desbloqueo.
  */
 export async function checkForNewMedalUnlocks(userId: string): Promise<NewMedalUnlock[]> {
-  const [dailyCounts, weeklyCounts, psychGrowthCounts, plan] = await Promise.all([
+  const [dailyCounts, weeklyCounts, plan] = await Promise.all([
     getCoreMissionCompletionCounts(userId),
     getWeeklyMissionCompletionCounts(userId),
-    getPsychGrowthCounts(userId),
     getTradingPlan(userId),
   ]);
 
@@ -2261,8 +2242,6 @@ export async function checkForNewMedalUnlocks(userId: string): Promise<NewMedalU
       label: 'Disciplina (Ataraxia 85-100%)',
       count: dailyCounts[OPERATOR_PSYCH_MISSION_KEYS.DISCIPLINE_85] ?? 0,
     },
-    { key: 'psych_growth:correccion', label: 'Corrección de errores', count: psychGrowthCounts.correccion },
-    { key: 'psych_growth:fortaleza', label: 'Fortaleza', count: psychGrowthCounts.fortaleza },
   ];
 
   const results = await Promise.all(
@@ -2291,11 +2270,10 @@ export async function getCompletedWeeklyMissionKeys(userId: string, weekStart: s
 }
 
 // ---------------------------------------------------------------------------
-// Misiones de Omega — 100% solo lectura desde el cliente. Las inserciones Y
-// el progreso los escribe exclusivamente la Edge Function omega-coach con la
-// Service Role Key (tool `update_mission_progress`) — el trader no tiene
-// ninguna vía para marcar su propia misión como completada; es Omega quien
-// verifica la evidencia real de la sesión antes de mover progress_pct.
+// Misiones deterministas — asignadas y completadas por reconcileDeterministicMissions
+// (ver más abajo), llamada al sellar el journal. El trader no marca sus
+// propias misiones como completadas; se verifican solas contra qué reglas de
+// computeDisciplineScore se rompieron o se cumplieron ese día.
 // ---------------------------------------------------------------------------
 
 export type AiMissionFrequency = 'diaria' | 'semanal' | 'unica';
@@ -2313,20 +2291,20 @@ export type AiMission = {
   reflection_answer: string | null;
   reflection_answered_at: string | null;
   expired_at: string | null;
+  xp_awarded: boolean;
 };
 
 /**
  * Trae TODAS las misiones (activas, completadas, expiradas) — el llamador
  * decide qué mostrar. Se filtra por `!expired_at` del lado del cliente para
- * el "Centro de Misiones Activas" — cubre el caso en que el trader no
- * disparó ninguna llamada a Omega en las últimas 24h y el servidor todavía
- * no corrió el barrido de expiración (ver omega-coach/index.ts).
+ * el "Centro de Misiones Activas" — cubre el caso en que expireStaleMissions
+ * todavía no corrió el barrido de expiración de las últimas 24h.
  */
 export async function getAiMissions(userId: string): Promise<AiMission[]> {
   const { data, error } = await supabase
     .from('ai_missions')
     .select(
-      'id, title, description, reward_xp, completed, progress_pct, frequency, created_at, requires_reflection, reflection_answer, reflection_answered_at, expired_at',
+      'id, title, description, reward_xp, completed, progress_pct, frequency, created_at, requires_reflection, reflection_answer, reflection_answered_at, expired_at, xp_awarded',
     )
     .eq('user_id', userId)
     .order('created_at', { ascending: false });
@@ -2341,10 +2319,10 @@ export function isMissionActive(mission: AiMission): boolean {
 }
 
 /**
- * Única escritura permitida al trader sobre ai_missions: su propia respuesta
- * de reflexión, sin XP ni progreso asociado (nada que hacer trampa) — mismo
- * patrón que acknowledgeBriefing. Omega decide después, con
- * update_mission_progress, si esa respuesta ameritó avance real.
+ * Escritura del trader sobre ai_missions para misiones de autorreflexión —
+ * sin XP ni progreso asociado, mismo patrón que acknowledgeBriefing. Ninguna
+ * misión determinista actual marca requires_reflection=true; queda para un
+ * futuro tipo de misión que sí lo requiera.
  */
 export async function submitMissionReflection(userId: string, missionId: string, answer: string): Promise<void> {
   const { error } = await supabase
@@ -2375,6 +2353,78 @@ export async function getRecentMissionReflections(
   }));
 }
 
+/**
+ * Reconcilia las misiones deterministas contra las reglas rotas/cumplidas de
+ * HOY (ver computeDisciplineScore) — reemplaza al par de tools de IA
+ * assign_ai_mission/update_mission_progress: (1) cualquier misión activa
+ * cuyo título coincide con la regla de una CheckId que hoy SÍ se cumplió se
+ * marca completada y acredita su XP como un evento MISSION_COMPLETED en
+ * virtus_events; (2) cualquier regla rota hoy sin misión activa ya asignada
+ * para ella recibe una nueva. Se llama una sola vez, al sellar el journal.
+ */
+export async function reconcileDeterministicMissions(
+  userId: string,
+  journalEntryId: string,
+  negativeIds: CheckId[],
+): Promise<void> {
+  const missions = await getAiMissions(userId);
+  const active = missions.filter((mission) => !mission.completed && !mission.expired_at);
+
+  const toComplete = active.filter((mission) => {
+    if (mission.xp_awarded) return false;
+    const matchedId = (Object.entries(CHECK_COPY) as [CheckId, (typeof CHECK_COPY)[CheckId]][]).find(
+      ([, copy]) => copy.missionTask === mission.title,
+    )?.[0];
+    return matchedId !== undefined && !negativeIds.includes(matchedId);
+  });
+
+  for (const mission of toComplete) {
+    const { error: updateError } = await supabase
+      .from('ai_missions')
+      .update({ completed: true, progress_pct: 100, xp_awarded: true })
+      .eq('id', mission.id)
+      .eq('user_id', userId);
+    if (updateError) throw updateError;
+
+    const { error: insertError } = await supabase.from('virtus_events').insert({
+      user_id: userId,
+      journal_entry_id: journalEntryId,
+      label: 'MISSION_COMPLETED',
+      points: mission.reward_xp,
+      detail: mission.title,
+    });
+    if (insertError) throw insertError;
+  }
+
+  const activeTitles = new Set(active.map((mission) => mission.title));
+  const toAssign = negativeIds.filter((id) => !activeTitles.has(CHECK_COPY[id].missionTask));
+
+  if (toAssign.length > 0) {
+    const rows = toAssign.map((id) => ({
+      user_id: userId,
+      title: CHECK_COPY[id].missionTask,
+      description: CHECK_COPY[id].missionTask,
+      reward_xp: CHECK_COPY[id].missionXp,
+      frequency: 'unica' as const,
+    }));
+    const { error } = await supabase.from('ai_missions').insert(rows);
+    if (error) throw error;
+  }
+}
+
+/** Barrido de expiración de misiones sin completar hace más de 24hs — reemplaza al sweep que antes corría en la Edge Function. */
+export async function expireStaleMissions(userId: string): Promise<void> {
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { error } = await supabase
+    .from('ai_missions')
+    .update({ expired_at: new Date().toISOString() })
+    .eq('user_id', userId)
+    .eq('completed', false)
+    .is('expired_at', null)
+    .lt('created_at', cutoff);
+  if (error) throw error;
+}
+
 /** Fecha (YYYY-MM-DD) del journal más reciente del usuario, sellado o no. */
 export async function getLatestJournalEntryDate(userId: string): Promise<string | null> {
   const { data, error } = await supabase
@@ -2389,107 +2439,32 @@ export async function getLatestJournalEntryDate(userId: string): Promise<string 
   return data?.entry_date ?? null;
 }
 
-export type OmegaAuditRow = {
-  id: string;
-  audit_date: string;
-  game_state: 'A' | 'B' | 'C';
-  daily_feedback: string;
-  strengths: { behavior: string; hypothesis: string; fix: string }[];
-  weaknesses: { behavior: string; hypothesis: string; fix: string }[];
-  daily_missions: { id: number; task: string; xpReward: number }[];
-  manual_audit: { issue_detected: string; suggested_rule: string };
-  created_at: string;
-};
+export type GoalNote = { id: string; goalId: string; goalText: string; note: string; createdAt: string };
 
-/** Auditoría del Head Coach ya guardada para hoy, si existe (una por día — ver unique(user_id, audit_date)). */
-export async function getTodayOmegaAudit(userId: string, todayIso: string): Promise<OmegaAuditRow | null> {
+/** Diario de progreso por meta — 100% escrito por el trader, aislado de Virtus/Ataraxia/XP. */
+export async function getGoalNotes(userId: string, goalId: string): Promise<GoalNote[]> {
   const { data, error } = await supabase
-    .from('omega_audits')
-    .select('id, audit_date, game_state, daily_feedback, strengths, weaknesses, daily_missions, manual_audit, created_at')
+    .from('goal_notes')
+    .select('id, goal_id, goal_text, note, created_at')
     .eq('user_id', userId)
-    .eq('audit_date', todayIso)
-    .maybeSingle();
+    .eq('goal_id', goalId)
+    .order('created_at', { ascending: false });
 
   if (error) throw error;
-  return data as OmegaAuditRow | null;
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    goalId: row.goal_id,
+    goalText: row.goal_text,
+    note: row.note,
+    createdAt: row.created_at,
+  }));
 }
 
-/** Mismo patrón que getTodayBriefingAckStatus — "tu análisis post-sesión está listo" sin leer todavía. */
-export async function getTodayOmegaAuditAckStatus(
-  userId: string,
-  todayIso: string,
-): Promise<{ exists: boolean; acknowledged: boolean }> {
-  const { data, error } = await supabase
-    .from('omega_audits')
-    .select('acknowledged_at')
-    .eq('user_id', userId)
-    .eq('audit_date', todayIso)
-    .maybeSingle();
-
-  if (error) throw error;
-  if (!data) return { exists: false, acknowledged: false };
-  return { exists: true, acknowledged: data.acknowledged_at !== null };
-}
-
-/** Se marca "leída" cuando el trader efectivamente abre Omega Coach con la auditoría de hoy cargada — sin botón extra. */
-export async function acknowledgeOmegaAudit(userId: string, todayIso: string): Promise<void> {
+export async function addGoalNote(userId: string, goalId: string, goalText: string, note: string): Promise<void> {
   const { error } = await supabase
-    .from('omega_audits')
-    .update({ acknowledged_at: new Date().toISOString() })
-    .eq('user_id', userId)
-    .eq('audit_date', todayIso);
-
+    .from('goal_notes')
+    .insert({ user_id: userId, goal_id: goalId, goal_text: goalText, note: note.trim() });
   if (error) throw error;
-}
-
-export type AiSessionVerdict = {
-  id: string;
-  session_date: string;
-  ataraxia_score: number | null;
-  verdict: string;
-  went_well: string[];
-  went_wrong: string[];
-  created_at: string;
-};
-
-export async function getLatestSessionVerdict(userId: string): Promise<AiSessionVerdict | null> {
-  const { data, error } = await supabase
-    .from('ai_session_verdicts')
-    .select('id, session_date, ataraxia_score, verdict, went_well, went_wrong, created_at')
-    .eq('user_id', userId)
-    .order('session_date', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error) throw error;
-  return data as AiSessionVerdict | null;
-}
-
-/**
- * Última razón que Omega dio para cada meta automática que ajustó — trae las
- * filas recientes y se queda con la más nueva por goal_id (reducido en
- * cliente; el volumen por trader es bajo, no amerita una función de Postgres
- * solo para esto).
- */
-export async function getLatestGoalProgressReasons(
-  userId: string,
-): Promise<Map<string, { reason: string; delta: number; createdAt: string }>> {
-  const { data, error } = await supabase
-    .from('goal_progress_events')
-    .select('goal_id, reason, delta, created_at')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false })
-    .limit(50);
-
-  if (error) throw error;
-
-  const byGoal = new Map<string, { reason: string; delta: number; createdAt: string }>();
-  (data ?? []).forEach((row) => {
-    if (!byGoal.has(row.goal_id)) {
-      byGoal.set(row.goal_id, { reason: row.reason, delta: row.delta, createdAt: row.created_at });
-    }
-  });
-  return byGoal;
 }
 
 /**
@@ -3238,51 +3213,25 @@ export async function replaceJournalFundingAccounts(
 // Recap Semanal — Omega Coach
 // ---------------------------------------------------------------------------
 
-export type WeeklyOmegaAuditSummary = {
-  gameState: 'A' | 'B' | 'C';
-  strengths: { behavior: string; hypothesis: string; fix: string }[];
-  weaknesses: { behavior: string; hypothesis: string; fix: string }[];
-};
+export type MissionCompletionEvent = { points: number; detail: string | null };
 
-/** Auditorías del Head Coach de la semana — de ahí sale la distribución de Juego A/B/C y las fugas repetidas. */
-export async function getOmegaAuditsForWeek(
+/** Misiones deterministas completadas en el rango (ver reconcileDeterministicMissions) — de ahí sale "misiones completadas + XP ganada" del recap semanal/mensual. */
+export async function getMissionCompletionEventsInRange(
   userId: string,
-  weekStart: string,
-  weekEnd: string,
-): Promise<WeeklyOmegaAuditSummary[]> {
+  start: string,
+  end: string,
+): Promise<MissionCompletionEvent[]> {
+  const dayAfterEnd = localIsoDate(new Date(new Date(`${end}T00:00:00`).getTime() + 24 * 60 * 60 * 1000));
   const { data, error } = await supabase
-    .from('omega_audits')
-    .select('game_state, strengths, weaknesses')
+    .from('virtus_events')
+    .select('points, detail')
     .eq('user_id', userId)
-    .gte('audit_date', weekStart)
-    .lte('audit_date', weekEnd);
+    .eq('label', 'MISSION_COMPLETED')
+    .gte('created_at', `${start}T00:00:00`)
+    .lt('created_at', `${dayAfterEnd}T00:00:00`);
 
   if (error) throw error;
-  return (data ?? []).map((row) => ({
-    gameState: row.game_state,
-    strengths: row.strengths ?? [],
-    weaknesses: row.weaknesses ?? [],
-  }));
-}
-
-export type WeeklyVirtusAiEvent = { points: number; reason: string };
-
-/** Eventos reales de XP (con timestamp real) de la semana — de ahí salen misiones completadas + XP ganada. */
-export async function getVirtusAiEventsForWeek(
-  userId: string,
-  weekStart: string,
-  weekEnd: string,
-): Promise<WeeklyVirtusAiEvent[]> {
-  const dayAfterWeekEnd = localIsoDate(new Date(new Date(`${weekEnd}T00:00:00`).getTime() + 24 * 60 * 60 * 1000));
-  const { data, error } = await supabase
-    .from('virtus_ai_events')
-    .select('points, reason')
-    .eq('user_id', userId)
-    .gte('created_at', `${weekStart}T00:00:00`)
-    .lt('created_at', `${dayAfterWeekEnd}T00:00:00`);
-
-  if (error) throw error;
-  return (data ?? []) as WeeklyVirtusAiEvent[];
+  return (data ?? []) as MissionCompletionEvent[];
 }
 
 // --- Omega Coach: briefings persistidos (omega_briefings) ---
@@ -3337,6 +3286,14 @@ export async function getBriefingByDate(userId: string, date: string): Promise<s
 
   if (error) throw error;
   return data?.content ?? null;
+}
+
+/** Guarda el briefing determinista del día — reemplaza al upsert que antes hacía la Edge Function omega-coach. */
+export async function saveBriefing(userId: string, date: string, content: string): Promise<void> {
+  const { error } = await supabase
+    .from('omega_briefings')
+    .upsert({ user_id: userId, briefing_date: date, content }, { onConflict: 'user_id,briefing_date' });
+  if (error) throw error;
 }
 
 // ---------------------------------------------------------------------------
@@ -3463,43 +3420,30 @@ const VIRTUS_EVENT_LABELS: Record<string, string> = {
   MISSION_JOURNAL_COMPLETED: 'Completaste el journal con al menos una operación',
   MISSION_DIRECTRIZ_DEFINED: 'Definiste tu directriz operativa',
   MISSION_QUIZ_COMPLETED: 'Completaste el Quiz Post-Mercado',
+  MISSION_COMPLETED: 'Misión completada',
 };
 
 /**
- * Eventos reales de Virtus de HOY (deterministas del sello del día +
- * ai_events de Omega), separados por signo — "Qué sumó" / "Qué restó" del
- * Tab Estado. Distinto de la caja de feedback de texto libre del Tab
- * Conversación: acá son los eventos puntuales con su puntaje real.
+ * Eventos reales de Virtus de HOY, separados por signo — "Qué sumó" / "Qué
+ * restó" del Tab Estado. `detail` (solo en filas MISSION_COMPLETED) nombra
+ * la misión puntual en vez de la etiqueta genérica.
  */
 export async function getTodayVirtusEventReasons(
   userId: string,
   date: string,
 ): Promise<{ positive: VirtusEventReason[]; negative: VirtusEventReason[] }> {
   const entry = await getJournalEntryByDate(userId, date);
-  const nextDay = localIsoDate(new Date(new Date(`${date}T00:00:00`).getTime() + 24 * 60 * 60 * 1000));
 
-  const [sealedEvents, aiEvents] = await Promise.all([
-    entry?.id
-      ? supabase.from('virtus_events').select('label, points').eq('journal_entry_id', entry.id)
-      : Promise.resolve({ data: [], error: null }),
-    supabase
-      .from('virtus_ai_events')
-      .select('points, reason')
-      .eq('user_id', userId)
-      .gte('created_at', `${date}T00:00:00`)
-      .lt('created_at', `${nextDay}T00:00:00`),
-  ]);
+  const { data, error } = entry?.id
+    ? await supabase.from('virtus_events').select('label, points, detail').eq('journal_entry_id', entry.id)
+    : { data: [], error: null };
 
-  if (sealedEvents.error) throw sealedEvents.error;
-  if (aiEvents.error) throw aiEvents.error;
+  if (error) throw error;
 
-  const all: VirtusEventReason[] = [
-    ...(sealedEvents.data ?? []).map((row) => ({
-      reason: VIRTUS_EVENT_LABELS[row.label as string] ?? (row.label as string),
-      points: row.points as number,
-    })),
-    ...(aiEvents.data ?? []).map((row) => ({ reason: row.reason as string, points: row.points as number })),
-  ];
+  const all: VirtusEventReason[] = (data ?? []).map((row) => ({
+    reason: (row.detail as string | null) ?? VIRTUS_EVENT_LABELS[row.label as string] ?? (row.label as string),
+    points: row.points as number,
+  }));
 
   return {
     positive: all.filter((event) => event.points > 0),

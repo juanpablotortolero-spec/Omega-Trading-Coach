@@ -3,13 +3,16 @@ import TradingPlanInfoModal from '../components/TradingPlanInfoModal';
 import { useAuth } from '../contexts/AuthContext';
 import { autoGrow } from '../lib/autoGrow';
 import {
+  addGoalNote,
   defaultTemplateSections,
   emptyTradingPlan,
+  getGoalNotes,
   getJournalTemplate,
   getTradingPlan,
   upsertJournalTemplate,
   upsertTradingPlan,
   type GoalItem,
+  type GoalNote,
   type JournalTemplateSections,
   type ScenarioItem,
   type SetupItem,
@@ -38,7 +41,74 @@ function newScenario(): ScenarioItem {
 }
 
 function newGoal(): GoalItem {
-  return { id: crypto.randomUUID(), text: '', type: 'manual', reward: '', progressPct: 0 };
+  return { id: crypto.randomUUID(), text: '', reward: '', progressPct: 0 };
+}
+
+/** Diario de progreso de una meta — notas cortas que escribe el trader, aisladas de Virtus/Ataraxia/XP. */
+function GoalNotesDiary({ goalId, goalText }: { goalId: string; goalText: string }) {
+  const { user } = useAuth();
+  const [notes, setNotes] = useState<GoalNote[]>([]);
+  const [expanded, setExpanded] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!user || !expanded) return;
+    let cancelled = false;
+    getGoalNotes(user.id, goalId).then((list) => {
+      if (!cancelled) setNotes(list);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [user, goalId, expanded]);
+
+  const handleAdd = async () => {
+    if (!user || !draft.trim() || saving) return;
+    setSaving(true);
+    try {
+      await addGoalNote(user.id, goalId, goalText, draft);
+      setDraft('');
+      setNotes(await getGoalNotes(user.id, goalId));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="goal-notes-diary">
+      <button type="button" className="ghost-btn btn-sm" onClick={() => setExpanded((v) => !v)}>
+        {expanded ? 'Ocultar diario de esta meta ▴' : 'Diario de esta meta ▾'}
+      </button>
+      {expanded && (
+        <div className="goal-notes-diary-body">
+          <div className="pre-session-field-row">
+            <input
+              type="text"
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              placeholder="Ej. hoy saqué un TP, hoy seguí mi plan…"
+            />
+            <button type="button" className="ghost-btn btn-sm" onClick={handleAdd} disabled={!draft.trim() || saving}>
+              {saving ? 'Guardando…' : 'Agregar nota'}
+            </button>
+          </div>
+          {notes.length === 0 ? (
+            <p className="hint-text">Todavía no escribiste ninguna nota en esta meta.</p>
+          ) : (
+            <ul className="goal-notes-list">
+              {notes.map((note) => (
+                <li key={note.id}>
+                  <span className="hint-text">{new Date(note.createdAt).toLocaleDateString('es-ES')}</span>
+                  <span>{note.note}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function TradingPlan() {
@@ -738,53 +808,21 @@ function TradingPlan() {
                 placeholder="ej. pasar mi primera cuenta fondeada"
               />
 
-              <div className="field-grid-2">
-                <div className="pill-row">
-                  <button
-                    type="button"
-                    className={`pill-btn gold small ${goal.type === 'manual' ? 'active' : ''}`}
-                    onClick={() =>
-                      set(
-                        'goals',
-                        plan.goals.map((item) => (item.id === goal.id ? { ...item, type: 'manual' } : item)),
-                      )
-                    }
-                  >
-                    Meta manual
-                  </button>
-                  <button
-                    type="button"
-                    className={`pill-btn gold small ${goal.type === 'automatic' ? 'active' : ''}`}
-                    onClick={() =>
-                      set(
-                        'goals',
-                        plan.goals.map((item) =>
-                          item.id === goal.id ? { ...item, type: 'automatic' } : item,
-                        ),
-                      )
-                    }
-                  >
-                    Meta automática
-                  </button>
-                </div>
-                <input
-                  type="text"
-                  value={goal.reward}
-                  onChange={(event) =>
-                    set(
-                      'goals',
-                      plan.goals.map((item) =>
-                        item.id === goal.id ? { ...item, reward: event.target.value } : item,
-                      ),
-                    )
-                  }
-                  placeholder="Recompensa"
-                />
-              </div>
+              <input
+                type="text"
+                value={goal.reward}
+                onChange={(event) =>
+                  set(
+                    'goals',
+                    plan.goals.map((item) => (item.id === goal.id ? { ...item, reward: event.target.value } : item)),
+                  )
+                }
+                placeholder="Recompensa"
+              />
 
               <div className="progress-field">
                 <div className="stat-header">
-                  <span className="eyebrow">Progreso manual</span>
+                  <span className="eyebrow">Progreso</span>
                   <span>{goal.progressPct}%</span>
                 </div>
                 <input
@@ -802,6 +840,8 @@ function TradingPlan() {
                   }
                 />
               </div>
+
+              <GoalNotesDiary goalId={goal.id} goalText={goal.text} />
             </div>
           ))}
         </div>

@@ -28,7 +28,7 @@ function newSetup(): SetupItem {
 }
 
 function newGoal(): GoalItem {
-  return { id: crypto.randomUUID(), text: '', type: 'manual', reward: '', progressPct: 0 };
+  return { id: crypto.randomUUID(), text: '', reward: '', progressPct: 0 };
 }
 
 const hasText = (value: string | null): boolean => !!value?.trim();

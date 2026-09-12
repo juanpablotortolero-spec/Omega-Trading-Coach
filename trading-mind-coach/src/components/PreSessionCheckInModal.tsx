@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { useOmega } from '../contexts/OmegaContext';
 import { useRefresh } from '../contexts/RefreshContext';
 import { acknowledgeBriefing, getTodayBriefingAckStatus, savePreSessionResponse, type PreSessionResponseInput } from '../lib/api';
 import { localIsoDate } from '../lib/calendar';
@@ -43,25 +42,33 @@ const QUIZ_STEP_COUNT = 4;
  */
 function PreSessionBriefingGate({ onAccepted }: { onAccepted: () => void }) {
   const { user } = useAuth();
-  const { sending } = useOmega();
   const todayIso = localIsoDate(new Date());
 
   const [ack, setAck] = useState<{ exists: boolean; acknowledged: boolean }>({ exists: false, acknowledged: false });
   const [acknowledging, setAcknowledging] = useState(false);
 
+  // El briefing se genera/guarda de forma local en BriefingPreSesion — acá
+  // solo se sondea cada segundo hasta que la fila exista, sin depender de
+  // ningún estado "sending" compartido (ya no hay Edge Function de por medio).
   useEffect(() => {
-    if (!user || sending) return;
+    if (!user) return;
     let cancelled = false;
 
-    getTodayBriefingAckStatus(user.id, todayIso).then((status) => {
-      if (!cancelled) setAck(status);
-    });
+    const check = () => {
+      getTodayBriefingAckStatus(user.id, todayIso).then((status) => {
+        if (cancelled) return;
+        setAck(status);
+      });
+    };
 
+    check();
+    const interval = setInterval(check, 1000);
     return () => {
       cancelled = true;
+      clearInterval(interval);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, sending]);
+  }, [user]);
 
   const handleAccept = async () => {
     if (!user || acknowledging) return;
@@ -175,6 +182,7 @@ function PreSessionCheckInModal({ onClose, initialStep = 'quiz' }: { onClose: ()
           )}
         </div>
 
+        <div className="pre-session-scroll-area">
         {step === 'quiz' ? (
           <div className="check-in-quiz">
             <div className="check-in-progress-bar" role="progressbar" aria-valuenow={quizStep + 1} aria-valuemin={1} aria-valuemax={QUIZ_STEP_COUNT}>
@@ -281,8 +289,17 @@ function PreSessionCheckInModal({ onClose, initialStep = 'quiz' }: { onClose: ()
             )}
 
             {error && <p className="omega-chat-error">{error}</p>}
+          </div>
+        ) : (
+          <div className="pre-session-briefing-step">
+            <BriefingPreSesion />
+          </div>
+        )}
+        </div>
 
-            <div className="pre-session-footer">
+        <div className="pre-session-footer">
+          {step === 'quiz' ? (
+            <>
               {quizStep > 0 ? (
                 <button type="button" className="ghost-btn btn-sm" onClick={goBack}>
                   Atrás
@@ -295,14 +312,11 @@ function PreSessionCheckInModal({ onClose, initialStep = 'quiz' }: { onClose: ()
               <button type="button" className="primary-btn btn-sm" onClick={goNextQuizStep} disabled={!canAdvanceQuizStep || saving}>
                 {saving ? 'Guardando…' : quizStep < QUIZ_STEP_COUNT - 1 ? 'Siguiente →' : 'Continuar al Briefing →'}
               </button>
-            </div>
-          </div>
-        ) : (
-          <div className="pre-session-briefing-step">
-            <BriefingPreSesion />
+            </>
+          ) : (
             <PreSessionBriefingGate onAccepted={handleBriefingAccepted} />
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import type { OmegaEffects } from '../hooks/useOmegaAgent';
+import type { HeadCoachAuditLike } from '../lib/omegaCoachTemplates';
 import AtaraxiaBar from './AtaraxiaBar';
 import OmegaMark from './OmegaMark';
 
@@ -9,18 +9,14 @@ function SessionSealedModal({
   score,
   positives,
   negatives,
-  omegaAuditing,
-  omegaVerdict,
-  omegaError,
+  audit,
 }: {
   open: boolean;
   onClose: () => void;
   score: number | null;
   positives: string[];
   negatives: string[];
-  omegaAuditing: boolean;
-  omegaVerdict: OmegaEffects['sessionVerdict'];
-  omegaError: string | null;
+  audit: HeadCoachAuditLike | null;
 }) {
   useEffect(() => {
     if (!open) return;
@@ -102,46 +98,33 @@ function SessionSealedModal({
             </div>
           </div>
 
-          {omegaAuditing && (
-            <div className="oraculo-loading">
-              <div className="skeleton oraculo-skeleton-line" />
-              <div className="skeleton oraculo-skeleton-line" style={{ width: '65%' }} />
-            </div>
-          )}
-
-          {!omegaAuditing && omegaVerdict && (
+          {audit ? (
             <>
-              <p className="oraculo-text">{omegaVerdict.verdict}</p>
+              <p className="oraculo-text">{audit.daily_feedback}</p>
               <div className="arete-breakdown">
-                {omegaVerdict.went_well.length > 0 && (
+                {audit.strengths.length > 0 && (
                   <div className="arete-col">
                     <span className="eyebrow">Se hizo bien</span>
                     <ul>
-                      {omegaVerdict.went_well.map((item) => (
-                        <li key={item}>{item}</li>
+                      {audit.strengths.map((item) => (
+                        <li key={item.behavior}>{item.behavior}</li>
                       ))}
                     </ul>
                   </div>
                 )}
-                {omegaVerdict.went_wrong.length > 0 && (
+                {audit.weaknesses.length > 0 && (
                   <div className="arete-col">
                     <span className="eyebrow">Se hizo mal</span>
                     <ul>
-                      {omegaVerdict.went_wrong.map((item) => (
-                        <li key={item}>{item}</li>
+                      {audit.weaknesses.map((item) => (
+                        <li key={item.behavior}>{item.behavior}</li>
                       ))}
                     </ul>
                   </div>
                 )}
               </div>
             </>
-          )}
-
-          {!omegaAuditing && !omegaVerdict && omegaError && (
-            <p className="omega-chat-error">{omegaError}</p>
-          )}
-
-          {!omegaAuditing && !omegaVerdict && !omegaError && (
+          ) : (
             <p className="hint-text">Omega no emitió un veredicto estructurado para esta sesión.</p>
           )}
         </section>

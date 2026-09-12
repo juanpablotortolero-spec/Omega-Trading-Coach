@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { useAuth } from './AuthContext';
 import { useRefresh } from './RefreshContext';
+import { FEAR_ZONE_INTERVENTION_MESSAGE } from '../lib/omegaCoachTemplates';
 import { supabase } from '../lib/supabaseClient';
 
 /** Corte de la zona "Miedo/Indisciplina" — mismo umbral que AtaraxiaBar.pillarName(). */
@@ -8,7 +9,7 @@ const FEAR_ZONE_MAX_SCORE = 35;
 
 export type AtaraxiaIntervention = {
   score: number;
-  verdict: string;
+  message: string;
   sessionDate: string;
 };
 
@@ -21,16 +22,16 @@ type AtaraxiaRealtimeContextValue = {
 const AtaraxiaRealtimeContext = createContext<AtaraxiaRealtimeContextValue | undefined>(undefined);
 
 /**
- * Suscripción a Supabase Realtime sobre `ai_session_verdicts` — la tabla real
- * donde el tool `evaluate_session` de omega-coach persiste cada evaluación
- * (ver supabase/functions/omega-coach/index.ts, runTool). Montada una sola
- * vez en MainLayout: cuando Omega guarda una evaluación nueva de ESTE
- * usuario, dispara bump() para que el medidor de Ataraxia (alimentado por
- * computeDisciplineTimeline en Dashboard/Estadisticas/JournalEntry) se
- * refresque en cualquier pantalla donde esté montado — y si el puntaje cae
+ * Suscripción a Supabase Realtime sobre `post_session_responses` — se
+ * escribe siempre y de forma confiable al sellar el journal
+ * (savePostSessionResponse en api.ts), a diferencia de la vieja tabla
+ * ai_session_verdicts (escrita por la Edge Function omega-coach, ya
+ * eliminada, que podía fallar en silencio). Montada una sola vez en
+ * MainLayout: cuando el trader sella una sesión, dispara bump() para que el
+ * medidor de Ataraxia se refresque donde esté montado — y si el puntaje cae
  * en la zona Miedo/Indisciplina (0-35%), activa la intervención global.
  *
- * Requiere que `ai_session_verdicts` esté agregada a la publicación
+ * Requiere que `post_session_responses` esté agregada a la publicación
  * `supabase_realtime` del lado de Supabase — si no lo está, esta suscripción
  * simplemente nunca recibe eventos (sin error visible).
  */
@@ -43,15 +44,14 @@ export function AtaraxiaRealtimeProvider({ children }: { children: ReactNode }) 
     if (!user) return;
 
     const channel = supabase
-      .channel(`ataraxia-verdicts-${user.id}`)
+      .channel(`ataraxia-post-session-${user.id}`)
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'ai_session_verdicts', filter: `user_id=eq.${user.id}` },
+        { event: 'INSERT', schema: 'public', table: 'post_session_responses', filter: `user_id=eq.${user.id}` },
         (payload) => {
           const row = payload.new as {
             ataraxia_score: number | null;
-            verdict: string;
-            session_date: string;
+            created_at: string;
           };
 
           // Refresca el medidor de Ataraxia dondequiera que esté montado —
@@ -59,7 +59,11 @@ export function AtaraxiaRealtimeProvider({ children }: { children: ReactNode }) 
           bump();
 
           if (row.ataraxia_score !== null && row.ataraxia_score <= FEAR_ZONE_MAX_SCORE) {
-            setIntervention({ score: row.ataraxia_score, verdict: row.verdict, sessionDate: row.session_date });
+            setIntervention({
+              score: row.ataraxia_score,
+              message: FEAR_ZONE_INTERVENTION_MESSAGE,
+              sessionDate: row.created_at.slice(0, 10),
+            });
           }
         },
       )

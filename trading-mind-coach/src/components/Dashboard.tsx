@@ -7,14 +7,12 @@ import VirtusProgressBar from './VirtusProgressBar';
 import { useAuth } from '../contexts/AuthContext';
 import { useAtaraxiaIntervention } from '../contexts/AtaraxiaRealtimeContext';
 import { useMailbox } from '../contexts/MailboxContext';
-import { useOmega } from '../contexts/OmegaContext';
 import { useRefresh } from '../contexts/RefreshContext';
 import {
   awardWeeklyMissions,
   coreDailyMissionDefinitions,
   getAiMissions,
   getAllOperations,
-  getLatestGoalProgressReasons,
   getCompletedWeeklyMissionKeys,
   getDisciplineInputsByDate,
   getFriends,
@@ -90,7 +88,7 @@ function LaurelBranch({ mirrored }: { mirrored?: boolean }) {
 
 function Dashboard() {
   const { user } = useAuth();
-  const { version, bump } = useRefresh();
+  const { version } = useRefresh();
   const navigate = useNavigate();
 
   const [loading, setLoading] = useState(true);
@@ -121,10 +119,6 @@ function Dashboard() {
   const [infoOpen, setInfoOpen] = useState(false);
   const [rankMapOpen, setRankMapOpen] = useState(false);
   const [aiMissions, setAiMissions] = useState<AiMission[]>([]);
-  const [goalReasons, setGoalReasons] = useState<Map<string, { reason: string; delta: number; createdAt: string }>>(
-    new Map(),
-  );
-  const { lastEffects: omegaLastEffects } = useOmega();
   const { intervention: ataraxiaIntervention } = useAtaraxiaIntervention();
   const { mailboxCount } = useMailbox();
 
@@ -268,19 +262,6 @@ function Dashboard() {
     if (!user) return;
     let cancelled = false;
 
-    getLatestGoalProgressReasons(user.id).then((map) => {
-      if (!cancelled) setGoalReasons(map);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [user, version]);
-
-  useEffect(() => {
-    if (!user) return;
-    let cancelled = false;
-
     Promise.all([getTodayPreSessionResponse(user.id, todayIso), getTodayBriefingAckStatus(user.id, todayIso)]).then(
       ([preSession, ack]) => {
         if (cancelled) return;
@@ -294,18 +275,6 @@ function Dashboard() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, version]);
-
-  useEffect(() => {
-    if (
-      omegaLastEffects &&
-      (omegaLastEffects.goalUpdates.length > 0 ||
-        omegaLastEffects.missionsAssigned.length > 0 ||
-        omegaLastEffects.missionProgressUpdates.length > 0)
-    ) {
-      bump();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [omegaLastEffects]);
 
   const stage = currentStage(virtusTotal);
   const namedGoals = goals.filter((goal) => goal.text.trim().length > 0);
@@ -499,29 +468,12 @@ function Dashboard() {
               {namedGoals.map((goal) => (
                 <div className="goal-row" key={goal.id}>
                   <div className="goal-row-header">
-                    <span className="goal-name">
-                      {goal.text || 'Meta sin nombre'}
-                      {goal.type === 'automatic' ? (
-                        <span className="goal-tag auto">
-                          <span className="goal-tag-dot" />
-                          Automática
-                        </span>
-                      ) : (
-                        <span className="goal-tag manual">Manual</span>
-                      )}
-                    </span>
+                    <span className="goal-name">{goal.text || 'Meta sin nombre'}</span>
                     <span className="mission-meta">{goal.progressPct}%</span>
                   </div>
                   <div className="gauge-wrap">
                     <span className="gauge-fill" style={{ width: `${goal.progressPct}%` }} />
                   </div>
-                  {goal.type === 'automatic' && (
-                    <p className="hint-text">
-                      {goalReasons.has(goal.id)
-                        ? `Omega: ${goalReasons.get(goal.id)!.reason} (${goalReasons.get(goal.id)!.delta > 0 ? '+' : ''}${goalReasons.get(goal.id)!.delta}%)`
-                        : 'Omega ajusta este progreso según tu ejecución real.'}
-                    </p>
-                  )}
                   {goal.reward && <p className="hint-text">Recompensa: {goal.reward}</p>}
                 </div>
               ))}

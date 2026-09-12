@@ -5,7 +5,6 @@ import {
   getRecentEntrySealStatus,
   getRecentSharesForMe,
   getTodayBriefingAckStatus,
-  getTodayOmegaAuditAckStatus,
 } from '../lib/api';
 import { localIsoDate } from '../lib/calendar';
 import { sendDesktopNotification } from '../lib/desktopNotifications';
@@ -16,7 +15,6 @@ const NOTIFICATION_POLL_MS = 90 * 1000;
 type NotifiedState = {
   unsealed: boolean;
   briefing: boolean;
-  audit: boolean;
   lastShareId: string | null;
   riskAccountIds: Set<string>;
 };
@@ -34,7 +32,6 @@ export function useDesktopNotifications() {
   const notifiedRef = useRef<NotifiedState>({
     unsealed: false,
     briefing: false,
-    audit: false,
     lastShareId: null,
     riskAccountIds: new Set(),
   });
@@ -68,18 +65,6 @@ export function useDesktopNotifications() {
           sendDesktopNotification('Tu briefing de hoy está listo', 'Omega ya preparó tu briefing pre-sesión.', 'briefing-ready');
         }
         state.briefing = briefingUnread;
-      } catch {
-        // idem
-      }
-      if (cancelled) return;
-
-      try {
-        const auditStatus = await getTodayOmegaAuditAckStatus(user.id, today);
-        const auditUnread = auditStatus.exists && !auditStatus.acknowledged;
-        if (auditUnread && !state.audit && !isFirstTick) {
-          sendDesktopNotification('Tu análisis post-sesión está listo', 'Omega ya auditó tu sesión de hoy.', 'audit-ready');
-        }
-        state.audit = auditUnread;
       } catch {
         // idem
       }

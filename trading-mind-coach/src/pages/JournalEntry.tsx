@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, typ
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useAtaraxiaIntervention } from '../contexts/AtaraxiaRealtimeContext';
-import { useOmega } from '../contexts/OmegaContext';
 import { useRefresh } from '../contexts/RefreshContext';
 import { autoGrow } from '../lib/autoGrow';
 import DatePicker from '../components/DatePicker';
@@ -34,6 +33,7 @@ import {
   logOperatorAndPsychMissionCompletions,
   postMarketQuizQuestions,
   postSessionReflectionQuestions,
+  reconcileDeterministicMissions,
   removeScreenshot,
   replaceJournalFundingAccounts,
   replaceOperations,
@@ -75,6 +75,7 @@ import {
   type DisciplineOperationInput,
 } from '../lib/disciplineScore';
 import { downloadJournalEntry } from '../lib/journalExport';
+import { buildDeterministicAudit } from '../lib/omegaCoachTemplates';
 import AtaraxiaBar from '../components/AtaraxiaBar';
 import SessionSealedModal from '../components/SessionSealedModal';
 import JournalInfoModal from '../components/JournalInfoModal';
@@ -226,20 +227,12 @@ function JournalEntry() {
   const [sealingPhase2, setSealingPhase2] = useState(false);
   const [showSealedSummary, setShowSealedSummary] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
-  const [auditingSession, setAuditingSession] = useState(false);
   const [fundingAccounts, setFundingAccounts] = useState<FundingAccount[]>([]);
   const [selectedFundingAccountIds, setSelectedFundingAccountIds] = useState<string[]>([]);
   const [killSwitchStatus, setKillSwitchStatus] = useState<WeeklyKillSwitchStatus | null>(null);
   const [briefingAckToday, setBriefingAckToday] = useState(true);
   const [quizModalOpen, setQuizModalOpen] = useState(false);
   const dropZoneRef = useRef<HTMLDivElement>(null);
-  const {
-    evaluateSession,
-    requestHeadCoachAudit,
-    sending: omegaSending,
-    lastEffects: omegaLastEffects,
-    error: omegaError,
-  } = useOmega();
   const { intervention: ataraxiaIntervention } = useAtaraxiaIntervention();
 
   useEffect(() => {
@@ -739,6 +732,10 @@ function JournalEntry() {
         entryToSave.custom_fields.post_session_extra,
         disciplineResult.score,
       );
+      // Misiones deterministas — reemplaza al assign_ai_mission/update_mission_progress
+      // que antes decidía la IA: se completan o se asignan solas según qué
+      // reglas de computeDisciplineScore se rompieron hoy.
+      await reconcileDeterministicMissions(user.id, entryId, disciplineResult.negativeIds);
 
       setEntry((current) => ({ ...current, id: entryId, custom_fields: entryToSave.custom_fields }));
       setSavedAt(Date.now());
@@ -751,34 +748,12 @@ function JournalEntry() {
       // caído al catch de abajo sin llegar a esta línea, y el borrador sigue
       // intacto para reintentar.
       clearJournalDraft(entryToSave.entry_date);
-
-      // Auditoría automática de Omega — el sello del journal (lo crítico) ya
-      // terminó arriba; esto corre aparte, sin bloquear ni poder invalidar lo
-      // que ya se guardó si Omega falla o tarda. requestHeadCoachAudit es la
-      // MISMA llamada que antes disparaba el botón "Auditar Última Sesión"
-      // en Omega Coach — ahora se dispara sola al sellar, así las pestañas
-      // Estado/Conversación/Objetivos tienen data real del día sin que el
-      // trader tenga que pedirla a mano.
-      setAuditingSession(true);
-      evaluateSession(entryToSave.entry_date).catch(() => {});
-      // Segundo bump() cuando esto termina (además del de arriba, que ya
-      // disparó al sellar) — así, si el trader está mirando Omega Coach,
-      // sus pestañas Estado/Conversación/Objetivos se destraban solas en
-      // cuanto la auditoría real está lista, sin que tenga que recargar.
-      requestHeadCoachAudit()
-        .then(() => bump())
-        .catch(() => {});
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo guardar el journal.');
     } finally {
       setSubmitting(false);
     }
   };
-
-  useEffect(() => {
-    if (!auditingSession || omegaSending) return;
-    setAuditingSession(false);
-  }, [auditingSession, omegaSending]);
 
   const sortedFriends = [...friends].sort((a, b) => {
     const rankA = friendOrder.indexOf(a.userId);
@@ -1780,9 +1755,7 @@ function JournalEntry() {
         score={disciplineResult.score}
         positives={disciplineResult.positives}
         negatives={disciplineResult.negatives}
-        omegaAuditing={auditingSession}
-        omegaVerdict={omegaLastEffects?.sessionVerdict ?? null}
-        omegaError={auditingSession ? null : omegaError}
+        audit={disciplineResult.score !== null ? buildDeterministicAudit(disciplineResult) : null}
       />
 
       <JournalInfoModal open={infoOpen} onClose={() => setInfoOpen(false)} />

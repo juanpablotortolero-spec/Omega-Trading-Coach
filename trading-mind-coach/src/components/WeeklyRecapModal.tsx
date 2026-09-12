@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import type { WeeklyRecapResult } from '../hooks/useOmegaAgent';
+import type { WeeklyRecapResult } from '../lib/omegaRecap';
 import OmegaMark from './OmegaMark';
 import PsychoProfileCard from './PsychoProfileCard';
 

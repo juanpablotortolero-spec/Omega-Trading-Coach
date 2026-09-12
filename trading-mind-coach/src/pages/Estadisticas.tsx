@@ -12,6 +12,7 @@ import {
 } from '../lib/api';
 import { localIsoDate } from '../lib/calendar';
 import { computeDisciplineTimeline, scoreToColor, type DisciplineOperationInput } from '../lib/disciplineScore';
+import { computeProfitFactor, monthBucketKey, tallyLabels, weekBucketKey } from '../lib/tradeMetrics';
 import AtaraxiaBar from '../components/AtaraxiaBar';
 
 type Period = 'day' | 'week' | 'month' | 'year' | 'all';
@@ -177,8 +178,9 @@ function Estadisticas() {
     const tp = filteredOps.filter((op) => op.outcome === 'TP').length;
     const sl = filteredOps.filter((op) => op.outcome === 'SL').length;
     const be = filteredOps.filter((op) => op.outcome === 'BE').length;
+    const profitFactor = computeProfitFactor(filteredOps);
 
-    return { totalTrades: filteredOps.length, winRatePct, longs, shorts, tp, sl, be };
+    return { totalTrades: filteredOps.length, winRatePct, longs, shorts, tp, sl, be, profitFactor };
   }, [filteredOps]);
 
   const outcomeTotal = metrics.tp + metrics.sl + metrics.be;
@@ -239,6 +241,51 @@ function Estadisticas() {
 
     return { average, delta, topNegatives };
   }, [areteFilteredTimeline]);
+
+  const allTimeTopNegatives = useMemo(
+    () => tallyLabels(areteTimeline.map((day) => day.negatives), 5),
+    [areteTimeline],
+  );
+
+  const [historyGranularity, setHistoryGranularity] = useState<'week' | 'month'>('week');
+
+  const historicalBuckets = useMemo(() => {
+    const bucketKeyFor = historyGranularity === 'week' ? weekBucketKey : monthBucketKey;
+    const opsByBucket = new Map<string, OperationRecord[]>();
+    ops.forEach((op) => {
+      const key = bucketKeyFor(op.entry_date);
+      const list = opsByBucket.get(key) ?? [];
+      list.push(op);
+      opsByBucket.set(key, list);
+    });
+    const ataraxiaByBucket = new Map<string, number[]>();
+    areteTimeline.forEach((day) => {
+      const key = bucketKeyFor(day.date);
+      const list = ataraxiaByBucket.get(key) ?? [];
+      list.push(day.score);
+      ataraxiaByBucket.set(key, list);
+    });
+
+    return [...opsByBucket.entries()]
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .slice(0, 12)
+      .map(([bucketKey, bucketOps]) => {
+        const scored = bucketOps.filter((op) => op.pnl !== null);
+        const wins = scored.filter((op) => (op.pnl as number) > 0).length;
+        const pnl = scored.reduce((sum, op) => sum + (op.pnl as number), 0);
+        const ataraxiaScores = ataraxiaByBucket.get(bucketKey) ?? [];
+        return {
+          bucketKey,
+          pnl,
+          winRatePct: scored.length === 0 ? null : Math.round((wins / scored.length) * 100),
+          profitFactor: computeProfitFactor(bucketOps),
+          ataraxiaAvg:
+            ataraxiaScores.length === 0
+              ? null
+              : Math.round(ataraxiaScores.reduce((sum, s) => sum + s, 0) / ataraxiaScores.length),
+        };
+      });
+  }, [ops, areteTimeline, historyGranularity]);
 
   const curvePoints = useMemo(() => {
     const scoped = filteredOps.filter((op) => op.pnl !== null);
@@ -464,6 +511,14 @@ function Estadisticas() {
                 </table>
               </div>
             </article>
+
+            <article className="panel metric">
+              <span className="eyebrow">Profit Factor</span>
+              <strong>{metrics.profitFactor !== null ? metrics.profitFactor.toFixed(2) : '—'}</strong>
+              <small className="neutral">
+                {metrics.profitFactor !== null ? 'ganancia bruta / pérdida bruta' : 'sin operaciones perdedoras todavía'}
+              </small>
+            </article>
           </section>
 
           <section className="panel plan-section">
@@ -555,7 +610,69 @@ function Estadisticas() {
                     </ul>
                   </div>
                 )}
+                {allTimeTopNegatives.length > 0 && (
+                  <div className="arete-col" style={{ marginTop: 12 }}>
+                    <span className="eyebrow">Histórico (todo el tiempo)</span>
+                    <ul>
+                      {allTimeTopNegatives.map((item) => (
+                        <li key={item.label}>
+                          {item.label} <span className="hint-text">({item.count}×)</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </>
+            )}
+          </section>
+
+          <section className="panel plan-section">
+            <div className="section-header">
+              <h3>Evolución histórica</h3>
+              <div className="pill-row">
+                <button
+                  type="button"
+                  className={`pill-btn gold small ${historyGranularity === 'week' ? 'active' : ''}`}
+                  onClick={() => setHistoryGranularity('week')}
+                >
+                  Semana
+                </button>
+                <button
+                  type="button"
+                  className={`pill-btn gold small ${historyGranularity === 'month' ? 'active' : ''}`}
+                  onClick={() => setHistoryGranularity('month')}
+                >
+                  Mes
+                </button>
+              </div>
+            </div>
+            {historicalBuckets.length === 0 ? (
+              <p className="hint-text">Todavía no hay suficientes operaciones para armar un histórico.</p>
+            ) : (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>{historyGranularity === 'week' ? 'Semana' : 'Mes'}</th>
+                      <th>P&L</th>
+                      <th>Winrate</th>
+                      <th>Profit Factor</th>
+                      <th>Ataraxia promedio</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {historicalBuckets.map((bucket) => (
+                      <tr key={bucket.bucketKey}>
+                        <td>{bucket.bucketKey}</td>
+                        <td className={bucket.pnl >= 0 ? 'bullish' : 'bearish'}>{formatMoney(bucket.pnl)}</td>
+                        <td>{bucket.winRatePct !== null ? `${bucket.winRatePct}%` : '—'}</td>
+                        <td>{bucket.profitFactor !== null ? bucket.profitFactor.toFixed(2) : '—'}</td>
+                        <td>{bucket.ataraxiaAvg !== null ? `${bucket.ataraxiaAvg}%` : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </section>
 

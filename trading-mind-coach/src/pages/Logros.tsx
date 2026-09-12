@@ -5,13 +5,11 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   coreDailyMissionDefinitions,
   getCoreMissionCompletionCounts,
-  getPsychGrowthCounts,
   getTradingPlan,
   getWeeklyMissionCompletionCounts,
   OPERATOR_PSYCH_MISSION_KEYS,
   weeklyMissionDefinitions,
   type MissionCompletionCounts,
-  type PsychGrowthCategory,
   type SetupItem,
 } from '../lib/api';
 import { getMedalProgress } from '../lib/medals';
@@ -49,10 +47,6 @@ function Logros() {
   const { user } = useAuth();
   const [dailyCounts, setDailyCounts] = useState<MissionCompletionCounts>({});
   const [weeklyCounts, setWeeklyCounts] = useState<MissionCompletionCounts>({});
-  const [psychGrowthCounts, setPsychGrowthCounts] = useState<Record<PsychGrowthCategory, number>>({
-    correccion: 0,
-    fortaleza: 0,
-  });
   const [setups, setSetups] = useState<SetupItem[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -63,13 +57,11 @@ function Logros() {
     Promise.all([
       getCoreMissionCompletionCounts(user.id),
       getWeeklyMissionCompletionCounts(user.id),
-      getPsychGrowthCounts(user.id),
       getTradingPlan(user.id),
-    ]).then(([daily, weekly, psych, plan]) => {
+    ]).then(([daily, weekly, plan]) => {
       if (cancelled) return;
       setDailyCounts(daily);
       setWeeklyCounts(weekly);
-      setPsychGrowthCounts(psych);
       setSetups(plan?.setups.filter((setup) => setup.name.trim().length > 0) ?? []);
       setLoading(false);
     });
@@ -166,8 +158,6 @@ function Logros() {
                 label="Disciplina (Ataraxia 85-100%)"
                 totalCompletions={dailyCounts[OPERATOR_PSYCH_MISSION_KEYS.DISCIPLINE_85] ?? 0}
               />
-              <MissionMedalCard label="Corrección de errores" totalCompletions={psychGrowthCounts.correccion} />
-              <MissionMedalCard label="Fortaleza" totalCompletions={psychGrowthCounts.fortaleza} />
             </div>
           </section>
         </>

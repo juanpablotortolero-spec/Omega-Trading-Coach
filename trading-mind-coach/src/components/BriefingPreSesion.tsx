@@ -1,30 +1,66 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { useOmega } from '../contexts/OmegaContext';
-import { getBriefingByDate } from '../lib/api';
+import { getBriefingByDate, getTodayPreSessionResponse, getTradingPlan, saveBriefing } from '../lib/api';
 import { localIsoDate } from '../lib/calendar';
-import EffectsSummary from './EffectsSummary';
+import {
+  getEventsForDate,
+  getWeeklyEconomicEvents,
+  isWithinFetchedWeek,
+  type EconomicEvent,
+} from '../lib/economicCalendar';
+import { buildDeterministicBriefing, getLatestPriorDisciplineDay } from '../lib/omegaCoachTemplates';
 import OmegaMark from './OmegaMark';
 
 /**
- * Briefing pre-sesión para OmegaDashboard. `sessionStorage` es solo una
- * micro-cache para no repetir la consulta al servidor en cada remount DENTRO
- * de la misma pestaña — la fuente de verdad real es `omega_briefings`
- * (persistido por omega-coach al generarlo). Antes esto confiaba únicamente
- * en `sessionStorage`, que se vacía al cerrar la pestaña/navegador: cada
- * sesión de browser nueva el mismo día volvía a llamar a Anthropic desde
- * cero aunque el briefing de hoy ya existiera guardado — gasto real sin
- * ningún beneficio. Ahora SIEMPRE se chequea el servidor primero.
+ * Briefing pre-sesión, ahora 100% determinista (sin Anthropic/Edge Function)
+ * — 3 líneas fijas (diagnóstico, correlación, regla de oro) armadas desde
+ * datos reales del trader (ver buildDeterministicBriefing). `sessionStorage`
+ * sigue siendo solo una micro-cache para no repetir la consulta al servidor
+ * en cada remount DENTRO de la misma pestaña — la fuente de verdad real es
+ * `omega_briefings`.
  */
 function BriefingPreSesion() {
   const { user } = useAuth();
-  const { messages, sending, error, lastEffects, requestBriefing } = useOmega();
   const todayIso = localIsoDate(new Date());
   const storageKey = `omega-briefing-${todayIso}`;
 
   const [briefingText, setBriefingText] = useState<string | null>(() => sessionStorage.getItem(storageKey));
   const [waiting, setWaiting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const requestedRef = useRef(false);
+
+  const generate = async () => {
+    if (!user) return;
+    setWaiting(true);
+    setError(null);
+    try {
+      const [checkIn, plan, yesterday] = await Promise.all([
+        getTodayPreSessionResponse(user.id, todayIso),
+        getTradingPlan(user.id),
+        getLatestPriorDisciplineDay(user.id, todayIso),
+      ]);
+
+      let todayHighImpactEvents: EconomicEvent[] | null = null;
+      if (isWithinFetchedWeek(todayIso)) {
+        try {
+          const weekEvents = await getWeeklyEconomicEvents();
+          todayHighImpactEvents = getEventsForDate(weekEvents, todayIso).filter((event) => event.impact === 'High');
+        } catch {
+          // El calendario económico es un extra del briefing, no su núcleo.
+          todayHighImpactEvents = null;
+        }
+      }
+
+      const content = buildDeterministicBriefing({ checkIn, yesterday, todayHighImpactEvents, plan });
+      await saveBriefing(user.id, todayIso, content);
+      setBriefingText(content);
+      sessionStorage.setItem(storageKey, content);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo generar el briefing.');
+    } finally {
+      setWaiting(false);
+    }
+  };
 
   useEffect(() => {
     if (requestedRef.current || !user) return;
@@ -45,28 +81,11 @@ function BriefingPreSesion() {
           setWaiting(false);
           return;
         }
-        // Recién acá, con el servidor confirmando que HOY no hay briefing
-        // guardado, se justifica gastar una llamada real a Anthropic.
-        requestBriefing();
+        generate();
       })
-      .catch(() => {
-        // Si falla la lectura (no la generación), no bloqueamos al trader —
-        // sigue al pedido normal en vez de dejarlo sin briefing.
-        requestBriefing();
-      });
+      .catch(() => generate());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
-
-  useEffect(() => {
-    if (!waiting || sending) return;
-    const last = messages[messages.length - 1];
-    if (last?.role === 'assistant') {
-      setBriefingText(last.content);
-      sessionStorage.setItem(storageKey, last.content);
-    }
-    setWaiting(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sending]);
 
   if (!waiting && !briefingText && !error) return null;
 
@@ -85,24 +104,12 @@ function BriefingPreSesion() {
         </div>
       )}
 
-      {!waiting && briefingText && (
-        <>
-          <p className="omega-feedback-text">{briefingText}</p>
-          {lastEffects && <EffectsSummary effects={lastEffects} />}
-        </>
-      )}
+      {!waiting && briefingText && <p className="omega-feedback-text">{briefingText}</p>}
 
       {!waiting && !briefingText && error && (
         <>
           <p className="omega-chat-error">{error}</p>
-          <button
-            type="button"
-            className="ghost-btn btn-sm"
-            onClick={() => {
-              setWaiting(true);
-              requestBriefing();
-            }}
-          >
+          <button type="button" className="ghost-btn btn-sm" onClick={generate}>
             Reintentar
           </button>
         </>

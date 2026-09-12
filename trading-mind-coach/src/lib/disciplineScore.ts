@@ -56,9 +56,31 @@ export type DisciplineScoreResult = {
   score: number | null;
   positives: string[];
   negatives: string[];
+  positiveIds: CheckId[];
+  negativeIds: CheckId[];
 };
 
+export type CheckId =
+  | 'pre_session_journal'
+  | 'setup_defined'
+  | 'bias_correct'
+  | 'narrative_respected'
+  | 'setup_params_ok'
+  | 'risk_respected'
+  | 'max_trades'
+  | 'session_window'
+  | 'no_plan_break'
+  | 'emotional_state';
+
+/** Corte de banda A/B/C — mismos umbrales que pillarName() en AtaraxiaBar.tsx. */
+export function gameStateFromScore(score: number): 'A' | 'B' | 'C' {
+  if (score >= 75) return 'A';
+  if (score >= 36) return 'B';
+  return 'C';
+}
+
 type Check = {
+  id: CheckId;
   label: string;
   negLabel: string;
   weight: number;
@@ -81,6 +103,7 @@ export function computeDisciplineScore(input: DisciplineScoreInput): DisciplineS
 
   const checks: Check[] = [
     {
+      id: 'pre_session_journal',
       label: 'Completaste tu journal pre-sesión',
       negLabel: 'No completaste tu journal pre-sesión',
       weight: 10,
@@ -88,6 +111,7 @@ export function computeDisciplineScore(input: DisciplineScoreInput): DisciplineS
       passed: Boolean(input.directriz && input.directriz.trim()),
     },
     {
+      id: 'setup_defined',
       label: 'Ejecutaste con un modelo/setup definido en tu plan',
       negLabel: 'Ejecutaste sin un modelo/setup definido en tu plan',
       weight: 10,
@@ -95,6 +119,7 @@ export function computeDisciplineScore(input: DisciplineScoreInput): DisciplineS
       passed: hasOps && input.operations.every((op) => Boolean(op.model && op.model.trim())),
     },
     {
+      id: 'bias_correct',
       label: 'Tu bias del día fue correcto',
       negLabel: 'Tu bias del día no fue correcto',
       weight: 15,
@@ -102,6 +127,7 @@ export function computeDisciplineScore(input: DisciplineScoreInput): DisciplineS
       passed: bias === 'Sí',
     },
     {
+      id: 'narrative_respected',
       label: 'Respetaste tu narrativa pre-sesión',
       negLabel: 'No respetaste tu narrativa pre-sesión',
       weight: 15,
@@ -109,6 +135,7 @@ export function computeDisciplineScore(input: DisciplineScoreInput): DisciplineS
       passed: narrative === 'Sí',
     },
     {
+      id: 'setup_params_ok',
       label: 'El setup ejecutado cumplió los parámetros de tu plan',
       negLabel: 'El setup ejecutado no cumplió los parámetros de tu plan',
       weight: 15,
@@ -116,6 +143,7 @@ export function computeDisciplineScore(input: DisciplineScoreInput): DisciplineS
       passed: setupParams === 'Sí',
     },
     {
+      id: 'risk_respected',
       label: 'Respetaste tu manejo de riesgo',
       negLabel: 'No respetaste tu manejo de riesgo',
       weight: 15,
@@ -123,6 +151,7 @@ export function computeDisciplineScore(input: DisciplineScoreInput): DisciplineS
       passed: risk === 'Sí',
     },
     {
+      id: 'max_trades',
       label: 'Te mantuviste dentro del máximo de operaciones de tu plan',
       negLabel: 'Excediste el máximo de operaciones permitidas en tu plan',
       weight: 10,
@@ -130,6 +159,7 @@ export function computeDisciplineScore(input: DisciplineScoreInput): DisciplineS
       passed: input.operations.length <= maxTrades,
     },
     {
+      id: 'session_window',
       label: 'Operaste dentro de tus ventanas de sesión definidas',
       negLabel: 'Ejecutaste fuera de tu ventana de sesión',
       weight: 10,
@@ -137,6 +167,7 @@ export function computeDisciplineScore(input: DisciplineScoreInput): DisciplineS
       passed: hasOps && input.operations.every((op) => op.session !== 'outside_window'),
     },
     {
+      id: 'no_plan_break',
       label: 'Ninguna operación incumplió tu plan',
       negLabel: 'Marcaste operaciones que incumplieron tu plan',
       weight: 15,
@@ -144,6 +175,7 @@ export function computeDisciplineScore(input: DisciplineScoreInput): DisciplineS
       passed: hasOps && input.operations.every((op) => !op.brokePlan),
     },
     {
+      id: 'emotional_state',
       label: 'Tu estado emocional predominante fue constructivo',
       negLabel: 'Predominaron emociones destructivas durante tu operativa (ansiedad, FOMO, venganza, codicia…)',
       weight: 10,
@@ -156,7 +188,7 @@ export function computeDisciplineScore(input: DisciplineScoreInput): DisciplineS
   const possible = applicableChecks.reduce((sum, check) => sum + check.weight, 0);
 
   if (possible === 0) {
-    return { score: null, positives: [], negatives: [] };
+    return { score: null, positives: [], negatives: [], positiveIds: [], negativeIds: [] };
   }
 
   const earned = applicableChecks.filter((check) => check.passed).reduce((sum, check) => sum + check.weight, 0);
@@ -166,10 +198,19 @@ export function computeDisciplineScore(input: DisciplineScoreInput): DisciplineS
     score,
     positives: applicableChecks.filter((check) => check.passed).map((check) => check.label),
     negatives: applicableChecks.filter((check) => !check.passed).map((check) => check.negLabel),
+    positiveIds: applicableChecks.filter((check) => check.passed).map((check) => check.id),
+    negativeIds: applicableChecks.filter((check) => !check.passed).map((check) => check.id),
   };
 }
 
-export type DailyDisciplineScore = { date: string; score: number; negatives: string[] };
+export type DailyDisciplineScore = {
+  date: string;
+  score: number;
+  positives: string[];
+  negatives: string[];
+  positiveIds: CheckId[];
+  negativeIds: CheckId[];
+};
 
 // Reduce un historial completo de journals + operaciones a un puntaje Arete
 // por día — reutilizado tanto por el total acumulado de Inicio como por el
@@ -190,7 +231,16 @@ export function computeDisciplineTimeline(
         operations: opsByDate.get(date) ?? [],
         maxTradesPerSession,
       });
-      return result.score !== null ? { date, score: result.score, negatives: result.negatives } : null;
+      return result.score !== null
+        ? {
+            date,
+            score: result.score,
+            positives: result.positives,
+            negatives: result.negatives,
+            positiveIds: result.positiveIds,
+            negativeIds: result.negativeIds,
+          }
+        : null;
     })
     .filter((item): item is DailyDisciplineScore => item !== null);
 }

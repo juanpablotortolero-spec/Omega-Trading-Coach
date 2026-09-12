@@ -4,7 +4,6 @@ import { useAuth } from '../contexts/AuthContext';
 import { AtaraxiaRealtimeProvider } from '../contexts/AtaraxiaRealtimeContext';
 import { useMailbox } from '../contexts/MailboxContext';
 import { MedalProvider } from '../contexts/MedalContext';
-import { OmegaProvider } from '../contexts/OmegaContext';
 import { useRefresh } from '../contexts/RefreshContext';
 import { getTodayBriefingAckStatus, touchPresence } from '../lib/api';
 import { localIsoDate } from '../lib/calendar';
@@ -12,7 +11,6 @@ import { getNotificationPermission, requestNotificationPermission, type Notifica
 import { useDesktopNotifications } from '../hooks/useDesktopNotifications';
 import AtaraxiaInterventionModal from './AtaraxiaInterventionModal';
 import MedalUnlockToast from './MedalUnlockToast';
-import OmegaAlertModal from './OmegaAlertModal';
 import OmegaMark from './OmegaMark';
 import OnboardingCarousel from './OnboardingCarousel';
 
@@ -130,7 +128,6 @@ function MainLayout() {
   }, [user]);
 
   return (
-    <OmegaProvider>
     <MedalProvider>
       <div className="ember-field" aria-hidden="true">
         {emberParticles.map((particle, index) => (
@@ -253,12 +250,10 @@ function MainLayout() {
       </main>
       </div>
 
-      <OmegaAlertModal />
       <AtaraxiaInterventionModal />
       <MedalUnlockToast />
       {showOnboarding && <OnboardingCarousel onClose={handleCloseOnboarding} />}
     </MedalProvider>
-    </OmegaProvider>
   );
 }
 

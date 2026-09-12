@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import BriefingHistoryCalendar from '../components/BriefingHistoryCalendar';
 import MissionCard from '../components/MissionCard';
 import MonthlyCloseModal from '../components/MonthlyCloseModal';
@@ -9,25 +9,24 @@ import RiskManagerPanel from '../components/RiskManagerPanel';
 import TendlerGameMeter from '../components/TendlerGameMeter';
 import WeeklyRecapModal from '../components/WeeklyRecapModal';
 import { useAuth } from '../contexts/AuthContext';
-import { useOmega } from '../contexts/OmegaContext';
 import { useRefresh } from '../contexts/RefreshContext';
-import type { HeadCoachAudit, MonthlyCloseResult, WeeklyRecapResult } from '../hooks/useOmegaAgent';
 import {
-  acknowledgeOmegaAudit,
+  expireStaleMissions,
   getAiMissions,
   getFundingAccountsWithTrend,
   getJournalEntryByDate,
-  getLatestGoalProgressReasons,
-  getTodayOmegaAudit,
+  getOperations,
   getTodayVirtusEventReasons,
   getTradingPlan,
   isMissionActive,
   type AiMission,
   type FundingAccountTrend,
-  type GoalItem,
   type VirtusEventReason,
 } from '../lib/api';
 import { localIsoDate } from '../lib/calendar';
+import { computeDisciplineScore } from '../lib/disciplineScore';
+import { buildDeterministicAudit, type HeadCoachAuditLike } from '../lib/omegaCoachTemplates';
+import { buildMonthlyClose, buildWeeklyRecap, type MonthlyCloseResult, type WeeklyRecapResult } from '../lib/omegaRecap';
 
 type CoachTab = 'briefing' | 'estado' | 'conversacion' | 'objetivos';
 
@@ -38,7 +37,7 @@ const TABS: { key: CoachTab; label: string }[] = [
   { key: 'objetivos', label: 'Objetivos' },
 ];
 
-function formatProfileItems(items: HeadCoachAudit['strengths'] | HeadCoachAudit['weaknesses']): string[] {
+function formatProfileItems(items: HeadCoachAuditLike['strengths'] | HeadCoachAuditLike['weaknesses']): string[] {
   return items.map((item) => (item.fix ? `${item.behavior} — ${item.fix}` : item.behavior));
 }
 
@@ -60,13 +59,12 @@ function WaitingForSealPanel() {
 
 function OmegaDashboard() {
   const { user } = useAuth();
-  const { requestHeadCoachAudit, requestWeeklyRecap, requestMonthlyClose, evaluateSession } = useOmega();
-  const { version, bump } = useRefresh();
+  const { version } = useRefresh();
   const todayIso = localIsoDate(new Date());
 
   const [activeTab, setActiveTab] = useState<CoachTab>('briefing');
 
-  const [audit, setAudit] = useState<HeadCoachAudit | null>(null);
+  const [audit, setAudit] = useState<HeadCoachAuditLike | null>(null);
   const [todaySealed, setTodaySealed] = useState(false);
 
   const [recapResult, setRecapResult] = useState<WeeklyRecapResult | null>(null);
@@ -81,14 +79,7 @@ function OmegaDashboard() {
   const [monthlyLoading, setMonthlyLoading] = useState(false);
   const [monthlyError, setMonthlyError] = useState<string | null>(null);
 
-  const [manualAuditing, setManualAuditing] = useState(false);
-  const [manualAuditError, setManualAuditError] = useState<string | null>(null);
-
   const [aiMissions, setAiMissions] = useState<AiMission[]>([]);
-  const [goals, setGoals] = useState<GoalItem[]>([]);
-  const [goalReasons, setGoalReasons] = useState<Map<string, { reason: string; delta: number; createdAt: string }>>(
-    new Map(),
-  );
 
   const [virtusReasons, setVirtusReasons] = useState<{ positive: VirtusEventReason[]; negative: VirtusEventReason[] }>({
     positive: [],
@@ -97,81 +88,57 @@ function OmegaDashboard() {
 
   const [riskAccounts, setRiskAccounts] = useState<FundingAccountTrend[]>([]);
 
+  // Estado/Conversación/Objetivos se destraban recién cuando HOY quedó
+  // sellado. La auditoría ya no depende de ninguna llamada asíncrona a un
+  // servicio externo: se recalcula acá mismo, al instante, a partir del
+  // journal + operaciones + plan de hoy (mismo cómputo que ya corre en
+  // JournalEntry.tsx al sellar).
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
 
-    getTodayOmegaAudit(user.id, todayIso).then((row) => {
-      if (cancelled || !row) return;
-      setAudit({
-        game_state: row.game_state,
-        daily_feedback: row.daily_feedback,
-        strengths: row.strengths,
-        weaknesses: row.weaknesses,
-        daily_missions: row.daily_missions,
-        manual_audit: row.manual_audit,
+    getJournalEntryByDate(user.id, todayIso).then(async (entry) => {
+      if (cancelled) return;
+      const sealed = Boolean(entry?.custom_fields.sealed_at);
+      setTodaySealed(sealed);
+      if (!sealed || !entry?.id) {
+        setAudit(null);
+        return;
+      }
+
+      const [operations, plan] = await Promise.all([getOperations(entry.id), getTradingPlan(user.id)]);
+      if (cancelled) return;
+      const result = computeDisciplineScore({
+        directriz: entry.directriz,
+        quiz: entry.custom_fields.quiz,
+        psychologyEmotions: entry.custom_fields.psychology_emotions,
+        operations: operations.map((op) => ({ model: op.model, session: op.session, brokePlan: op.brokePlan })),
+        maxTradesPerSession: plan?.max_trades_per_session ?? null,
+      });
+      setAudit(result.score !== null ? buildDeterministicAudit(result) : null);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, version]);
+
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+
+    expireStaleMissions(user.id).finally(() => {
+      if (cancelled) return;
+      getAiMissions(user.id).then((missions) => {
+        if (!cancelled) setAiMissions(missions);
       });
     });
 
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, version]);
-
-  // "Tu análisis post-sesión está listo" se marca leído en cuanto el trader
-  // efectivamente abre Estado o Conversación con la auditoría de hoy ya
-  // cargada — sin botón extra, mismo espíritu que el contrato del briefing
-  // pero sin requerir un click aparte. auditAckSentRef evita reintentos en
-  // cada render mientras el tab sigue abierto.
-  const auditAckSentRef = useRef(false);
-  useEffect(() => {
-    if (!user || !audit) return;
-    if (activeTab !== 'estado' && activeTab !== 'conversacion') return;
-    if (auditAckSentRef.current) return;
-    auditAckSentRef.current = true;
-    acknowledgeOmegaAudit(user.id, todayIso).catch(() => {
-      auditAckSentRef.current = false;
-    });
-  }, [user, audit, activeTab, todayIso]);
-
-  // Estado/Conversación/Objetivos se destraban recién cuando HOY quedó
-  // sellado — la auditoría automática (disparada al sellar, ver
-  // JournalEntry.tsx) alimenta `audit` arriba, pero el sello en sí es la
-  // señal real: si la auditoría todavía no terminó, igual queremos mostrar
-  // "ya sellaste, esperando el análisis" en vez de "todavía te falta sellar".
-  useEffect(() => {
-    if (!user) return;
-    let cancelled = false;
-
-    getJournalEntryByDate(user.id, todayIso).then((entry) => {
-      if (!cancelled) setTodaySealed(Boolean(entry?.custom_fields.sealed_at));
-    });
-
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, version]);
-
-  useEffect(() => {
-    if (!user) return;
-    let cancelled = false;
-
-    Promise.all([getAiMissions(user.id), getTradingPlan(user.id), getLatestGoalProgressReasons(user.id)]).then(
-      ([missions, plan, reasons]) => {
-        if (cancelled) return;
-        setAiMissions(missions);
-        setGoals(plan?.goals ?? []);
-        setGoalReasons(reasons);
-      },
-    );
-
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
 
   useEffect(() => {
     if (!user) return;
@@ -202,11 +169,11 @@ function OmegaDashboard() {
   }, [user, version]);
 
   const handleGenerateRecap = async (weekMonday: Date) => {
-    if (generatingWeekKey) return;
+    if (!user || generatingWeekKey) return;
     setGeneratingWeekKey(localIsoDate(weekMonday));
     setRecapError(null);
     try {
-      const result = await requestWeeklyRecap(weekMonday);
+      const result = await buildWeeklyRecap(user.id, weekMonday);
       setRecapResult(result);
       setRecapOpen(true);
     } catch (err) {
@@ -217,11 +184,11 @@ function OmegaDashboard() {
   };
 
   const handleGenerateMonthlyClose = async (monthStart: string, monthEnd: string) => {
-    if (monthlyLoading) return;
+    if (!user || monthlyLoading) return;
     setMonthlyLoading(true);
     setMonthlyError(null);
     try {
-      const result = await requestMonthlyClose(monthStart, monthEnd);
+      const result = await buildMonthlyClose(user.id, monthStart, monthEnd);
       setMonthlyResult(result);
       setMonthlyOpen(true);
     } catch (err) {
@@ -229,30 +196,6 @@ function OmegaDashboard() {
     } finally {
       setMonthlyLoading(false);
     }
-  };
-
-  /**
-   * Botón temporal de emergencia (Día 1 en producción): reintenta manualmente
-   * la MISMA auditoría que debería haberse disparado sola al sellar (ver
-   * JournalEntry.tsx) para los casos en que falló en silencio. Reintenta
-   * también evaluate_session (Ataraxia/ai_session_verdicts) en paralelo —
-   * distinta tabla, mismo momento de fallo — pero el éxito/error mostrado
-   * acá es el de omega_audits, que es lo que pintan estas 3 pestañas.
-   */
-  const handleManualAudit = async () => {
-    if (!user || manualAuditing) return;
-    setManualAuditing(true);
-    setManualAuditError(null);
-    try {
-      const result = await requestHeadCoachAudit();
-      setAudit(result);
-      bump();
-    } catch (err) {
-      setManualAuditError(err instanceof Error ? err.message : 'No se pudo generar la auditoría.');
-    } finally {
-      setManualAuditing(false);
-    }
-    evaluateSession(todayIso).catch(() => {});
   };
 
   const strengths = audit ? formatProfileItems(audit.strengths) : [];
@@ -264,8 +207,6 @@ function OmegaDashboard() {
     : '';
 
   const incompleteMissions = aiMissions.filter((mission) => !mission.completed && isMissionActive(mission));
-  const namedGoals = goals.filter((goal) => goal.text.trim().length > 0);
-  const automaticGoals = namedGoals.filter((goal) => goal.type === 'automatic');
 
   return (
     <div className="omega-hq">
@@ -302,15 +243,6 @@ function OmegaDashboard() {
           </button>
         ))}
       </div>
-
-      {todaySealed && (
-        <div className="omega-manual-audit-bar">
-          <button type="button" className="ghost-btn btn-sm" onClick={handleManualAudit} disabled={manualAuditing}>
-            {manualAuditing ? 'Auditando…' : audit ? 'Reintentar auditoría de hoy' : 'Auditar sesión de hoy'}
-          </button>
-          {manualAuditError && <p className="omega-chat-error">{manualAuditError}</p>}
-        </div>
-      )}
 
       {activeTab === 'briefing' && (
         <div className="omega-tab-panel">
@@ -442,44 +374,12 @@ function OmegaDashboard() {
               <div className="empty-state">
                 <span className="empty-icon" />
                 <h3>Sin misiones activas</h3>
-                <p>Cuando Omega detecte un patrón, te asignará una misión aquí.</p>
+                <p>Cuando rompas una regla de tu plan, se te asignará una misión aquí.</p>
               </div>
             ) : (
               <div className="omega-mission-list">
                 {incompleteMissions.map((mission) => (
                   <MissionCard key={mission.id} mission={mission} />
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section className="panel plan-section">
-            <h3 className="omega-section-title">Metas del Manual Operativo</h3>
-            {automaticGoals.length === 0 ? (
-              <p className="hint-text">Sin metas automáticas definidas todavía.</p>
-            ) : (
-              <div className="goal-list">
-                {automaticGoals.map((goal) => (
-                  <div className="goal-row" key={goal.id}>
-                    <div className="goal-row-header">
-                      <span className="goal-name">
-                        {goal.text || 'Meta sin nombre'}
-                        <span className="goal-tag auto">
-                          <span className="goal-tag-dot" />
-                          Automática
-                        </span>
-                      </span>
-                      <span className="mission-meta">{goal.progressPct}%</span>
-                    </div>
-                    <div className="gauge-wrap">
-                      <span className="gauge-fill" style={{ width: `${goal.progressPct}%` }} />
-                    </div>
-                    <p className="hint-text">
-                      {goalReasons.has(goal.id)
-                        ? `Omega: ${goalReasons.get(goal.id)!.reason} (${goalReasons.get(goal.id)!.delta > 0 ? '+' : ''}${goalReasons.get(goal.id)!.delta}%)`
-                        : 'Omega ajusta este progreso según tu ejecución real.'}
-                    </p>
-                  </div>
                 ))}
               </div>
             )}

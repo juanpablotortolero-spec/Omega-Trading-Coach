@@ -21,7 +21,7 @@ function AtaraxiaInterventionModal() {
         </div>
         <span className="eyebrow">Zona Miedo/Indisciplina — {intervention.score}%</span>
         <h2>Cierra la plataforma. Sal a entrenar.</h2>
-        <p className="ataraxia-intervention-message">{intervention.verdict}</p>
+        <p className="ataraxia-intervention-message">{intervention.message}</p>
         <p className="hint-text">
           El acceso a nuevas operaciones queda bloqueado hasta que confirmes que leíste esto.
         </p>
