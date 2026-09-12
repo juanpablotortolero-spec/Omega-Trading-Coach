@@ -416,6 +416,7 @@ export const postSessionReflectionQuestions: PostSessionReflectionQuestion[] = [
       'Mayormente encaminado, con algunas dudas',
       'En tilt — quiero seguir operando para recuperarme',
       'Disciplinado — seguí mis reglas',
+      'Hoy no ejecuté',
     ],
   },
   {
@@ -426,6 +427,7 @@ export const postSessionReflectionQuestions: PostSessionReflectionQuestion[] = [
       'Difícil de decir — no lo estaba siguiendo de cerca',
       'No — los malos fueron impulsivos',
       'Sí — mismo proceso, distintos resultados',
+      'Hoy no ejecuté',
     ],
   },
   {
@@ -436,6 +438,7 @@ export const postSessionReflectionQuestions: PostSessionReflectionQuestion[] = [
       'Ver correr un trade que me perdí, sin mí',
       'Sostener un drawdown sin reaccionar',
       'Ninguno — sesión fluida',
+      'Hoy no ejecuté',
     ],
   },
   {

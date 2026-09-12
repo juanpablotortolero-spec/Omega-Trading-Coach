@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { autoGrow } from '../lib/autoGrow';
 import {
   postMarketQuizQuestions,
@@ -85,7 +86,7 @@ function PostSessionQuizModal({
   const goNext = () => setStepIndex((current) => Math.min(current + 1, STEPS.length - 1));
   const goBack = () => setStepIndex((current) => Math.max(current - 1, 0));
 
-  return (
+  return createPortal(
     <div className="post-session-quiz-backdrop">
       <div className="post-session-quiz-panel">
         <div className="pre-session-eyebrow-row">
@@ -204,7 +205,8 @@ function PostSessionQuizModal({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
